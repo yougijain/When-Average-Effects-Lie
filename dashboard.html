@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>When Average Effects Lie — Hillstrom Causal Analysis</title>
+<style>
+  :root{
+    --blue:#2c7fb8; --blue-dark:#1c5a85; --red:#c0392b; --green:#41ab5d;
+    --ink:#1a2330; --muted:#5b6b7e; --line:#e3e8ee; --bg:#f6f8fb; --card:#fff;
+    --radius:14px; --shadow:0 1px 3px rgba(20,40,70,.08),0 8px 24px rgba(20,40,70,.06);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       color:var(--ink);background:var(--bg);line-height:1.55}
+  a{color:var(--blue-dark)}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 20px}
+  header{background:linear-gradient(135deg,#10243a,#1c5a85 60%,#2c7fb8);color:#fff;padding:48px 0 30px}
+  header .wrap{position:relative}
+  .eyebrow{text-transform:uppercase;letter-spacing:.16em;font-size:12px;opacity:.85;font-weight:600}
+  h1{margin:.25em 0 .15em;font-size:34px;line-height:1.12;font-weight:800}
+  .sub{font-size:18px;opacity:.92;max-width:760px}
+  .meta{margin-top:18px;display:flex;flex-wrap:wrap;gap:10px}
+  .pill{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.25);
+        padding:5px 11px;border-radius:999px;font-size:13px;font-weight:600}
+  nav{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.92);
+      backdrop-filter:saturate(180%) blur(8px);border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex;gap:4px;overflow-x:auto}
+  .tab{appearance:none;border:0;background:none;cursor:pointer;font:inherit;font-weight:600;
+       color:var(--muted);padding:15px 16px;border-bottom:3px solid transparent;white-space:nowrap}
+  .tab:hover{color:var(--ink)}
+  .tab.active{color:var(--blue-dark);border-bottom-color:var(--blue)}
+  main{padding:34px 0 70px}
+  section.panel{display:none;animation:fade .25s ease}
+  section.panel.active{display:block}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+  h2{font-size:24px;margin:0 0 6px}
+  .lead{color:var(--muted);font-size:16px;margin:0 0 22px;max-width:780px}
+  .grid{display:grid;gap:16px}
+  .cards{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+        padding:18px 18px;box-shadow:var(--shadow)}
+  .stat{font-size:30px;font-weight:800;color:var(--blue-dark);line-height:1.1}
+  .stat.red{color:var(--red)} .stat.green{color:var(--green)}
+  .stat-label{font-size:13px;color:var(--muted);margin-top:4px}
+  .callout{border-left:4px solid var(--blue);background:#eef5fb;border-radius:10px;
+           padding:16px 18px;margin:20px 0}
+  .callout.warn{border-color:var(--red);background:#fcebe9}
+  .callout.good{border-color:var(--green);background:#ecf7f0}
+  table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);
+        border-radius:var(--radius);overflow:hidden;font-size:14.5px;box-shadow:var(--shadow)}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line)}
+  th{background:#f0f4f9;font-size:12.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+  tr:last-child td{border-bottom:0}
+  td.num{font-variant-numeric:tabular-nums;font-weight:600}
+  .pos{color:var(--green)} .neg{color:var(--red)}
+  figure{margin:0}
+  figure img{width:100%;border:1px solid var(--line);border-radius:12px;background:#fff;box-shadow:var(--shadow)}
+  figcaption{font-size:13px;color:var(--muted);margin-top:8px}
+  .figgrid{grid-template-columns:repeat(auto-fit,minmax(330px,1fr))}
+  .layer{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+         padding:16px 18px;box-shadow:var(--shadow);display:flex;gap:14px;align-items:flex-start}
+  .layer .n{flex:0 0 38px;height:38px;border-radius:10px;background:var(--blue);color:#fff;
+            font-weight:800;display:flex;align-items:center;justify-content:center}
+  .layer h3{margin:0 0 3px;font-size:16px}
+  .layer p{margin:0;color:var(--muted);font-size:14px}
+  .layer .why{margin-top:6px;font-size:13px;color:var(--blue-dark);font-weight:600}
+  pre{background:#10243a;color:#e6edf3;border-radius:12px;padding:16px 18px;overflow:auto;
+      font-size:13px;line-height:1.5;box-shadow:var(--shadow);
+      font-family:"SF Mono", "JetBrains Mono",Consolas,Menlo,monospace}
+  pre .c{color:#7d97b8} pre .k{color:#79c0ff} pre .s{color:#a5d6a3}
+  .qa{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+      margin-bottom:12px;box-shadow:var(--shadow);overflow:hidden}
+  .qa button{appearance:none;border:0;background:none;width:100%;text-align:left;cursor:pointer;
+             font:inherit;font-weight:700;padding:15px 18px;display:flex;justify-content:space-between;gap:12px}
+  .qa button:hover{background:#f7fafd}
+  .qa .a{padding:0 18px;max-height:0;overflow:hidden;transition:max-height .3s ease,padding .3s ease;color:var(--muted)}
+  .qa.open .a{padding:0 18px 18px;max-height:600px}
+  .qa .chev{color:var(--blue);transition:transform .25s}
+  .qa.open .chev{transform:rotate(180deg)}
+  .kbd{font-family:Consolas,Menlo,monospace;background:#eef2f7;border:1px solid var(--line);
+       border-radius:6px;padding:1px 6px;font-size:13px}
+  footer{border-top:1px solid var(--line);color:var(--muted);font-size:13px;padding:24px 0;text-align:center}
+  .note{font-size:12.5px;color:var(--muted);margin-top:6px}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="eyebrow">Causal Inference · Uplift Modelling · Experimentation</div>
+    <h1>When Average Effects Lie</h1>
+    <p class="sub">A routine email A/B test, turned into a targeting strategy.
+      The average lift looks healthy — but it hides a 6&times; difference that flips
+      the right business decision.</p>
+    <div class="meta">
+      <span class="pill">Hillstrom experiment · 64,000 customers</span>
+      <span class="pill">3 randomized arms</span>
+      <span class="pill">8-layer pipeline</span>
+      <span class="pill">Python · statsmodels · scikit-learn</span>
+    </div>
+  </div>
+</header>
+
+<nav>
+  <div class="wrap">
+    <button class="tab active" data-tab="overview">Overview</button>
+    <button class="tab" data-tab="pipeline">Pipeline</button>
+    <button class="tab" data-tab="code">Code</button>
+    <button class="tab" data-tab="findings">Findings</button>
+    <button class="tab" data-tab="interview">Interview Prep</button>
+  </div>
+</nav>
+
+<main class="wrap">
+
+  <!-- OVERVIEW -->
+  <section class="panel active" id="overview">
+    <h2>The decision behind the data</h2>
+    <p class="lead">Two promotional emails — one for men's merchandise, one for
+      women's — each lift sales on average. The naive read is "send both to
+      everyone." This analysis shows that read is wrong for one of the two
+      campaigns, and quantifies the better policy.</p>
+
+    <div class="grid cards">
+      <div class="card"><div class="stat">64,000</div><div class="stat-label">customers, randomized 1:1:1 across Men's / Women's / no email</div></div>
+      <div class="card"><div class="stat">+7.66pp</div><div class="stat-label">Men's email visit lift — uniform across segments</div></div>
+      <div class="card"><div class="stat red">+1.1 → +7.3pp</div><div class="stat-label">Women's email lift: non-buyers vs. women's-merch buyers</div></div>
+      <div class="card"><div class="stat green">~2&times;</div><div class="stat-label">net value from targeting the Women's email vs. blanket send</div></div>
+    </div>
+
+    <div class="callout">
+      <strong>The headline.</strong> The Women's email's +4.5pp average lift is an
+      illusion of aggregation. It moves visits <strong>+7.3pp</strong> for prior
+      women's-merch buyers but only <strong>+1.1pp</strong> for those who never
+      bought women's merchandise (and <strong>+2.2pp</strong> for men's-merch
+      buyers). The Men's email lifts <em>everyone</em> ~7.7pp. Same "positive A/B
+      result"; opposite playbooks.
+    </div>
+
+    <h2 style="margin-top:28px">The recommendation</h2>
+    <table>
+      <thead><tr><th>Campaign</th><th>Avg. visit lift (95% CI)</th><th>Heterogeneity</th><th>Policy</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>Men's email</strong></td>
+          <td class="num">+7.66pp <span class="note">[+7.00, +8.32]</span></td>
+          <td>Low — interactions n.s. after FDR</td>
+          <td><span class="pos">Contact broadly</span> — targeting adds nothing</td>
+        </tr>
+        <tr>
+          <td><strong>Women's email</strong></td>
+          <td class="num">+4.52pp <span class="note">[+3.89, +5.16]</span></td>
+          <td>High — T&times;affinity p&nbsp;&lt;&nbsp;1e-4</td>
+          <td><span class="pos">Target the ~59%</span> with affinity → ~2&times; net value, 415 fewer contacts / 1,000</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="note">Net-value figures use illustrative economics ($2 / incremental
+      visit, $0.06 / contact ⇒ 3pp break-even). The qualitative call is robust to
+      the exact prices.</p>
+  </section>
+
+  <!-- PIPELINE -->
+  <section class="panel" id="pipeline">
+    <h2>Eight layers, one script</h2>
+    <p class="lead"><span class="kbd">hillstrom_ab_analysis.py</span> runs the full
+      pipeline top to bottom, writes <span class="kbd">RESULTS.md</span>, and saves
+      seven figures. Each layer maps to something experimentation interviewers
+      actually probe.</p>
+    <div class="grid" id="layers"></div>
+  </section>
+
+  <!-- CODE -->
+  <section class="panel" id="code">
+    <h2>The parts worth reading</h2>
+    <p class="lead">Three excerpts that carry the statistical weight. Full source in
+      <span class="kbd">hillstrom_ab_analysis.py</span>.</p>
+
+    <h3>Qini curve &amp; coefficient (uplift ranking quality)</h3>
+    <pre><span class="c"># sort customers by predicted uplift, accumulate treated vs. control response</span>
+<span class="k">def</span> qini_curve(y, treat, score):
+    order = np.argsort(-score, kind=<span class="s">"mergesort"</span>)
+    y, t = y[order], treat[order]
+    cum_t, cum_c   = np.cumsum(t), np.cumsum(1 - t)
+    cum_yt, cum_yc = np.cumsum(y*t), np.cumsum(y*(1 - t))
+    ratio = np.where(cum_c &gt; 0, cum_t/cum_c, 0.0)
+    qini  = cum_yt - cum_yc*ratio          <span class="c"># control responses re-scaled to treated size</span>
+    frac  = np.arange(1, len(y)+1)/len(y)
+    total = cum_yt[-1] - cum_yc[-1]*(cum_t[-1]/cum_c[-1])
+    qini_coef = TRAPEZOID(qini, frac) - TRAPEZOID(frac*total, frac)
+    <span class="k">return</span> frac, qini, frac*total, qini_coef</pre>
+
+    <h3>IPW policy value + cost-sensitive targeting (Layer 7)</h3>
+    <pre><span class="c"># treatment was randomized => propensity p is a known constant => unbiased</span>
+p = tte.mean()
+<span class="k">def</span> ipw_value(policy):
+    w = np.where(policy == 1, (tte == 1)/p, (tte == 0)/(1 - p))
+    <span class="k">return</span> (w * yte).mean()      <span class="c"># reduces to mean(treated)/mean(control) at the extremes</span>
+
+breakeven = COST_PER_EMAIL / VALUE_PER_VISIT          <span class="c"># uplift that pays for a contact</span>
+pi   = (score &gt; breakeven).astype(int)                <span class="c"># contact only if it pays</span>
+nv   = ((ipw_value(pi) - ipw_value(zeros))*VALUE_PER_VISIT
+        - pi.mean()*COST_PER_EMAIL) * 1000            <span class="c"># net value / 1,000, incremental only</span></pre>
+
+    <h3>Lin (2013) covariate-adjusted ATE (Layer 4)</h3>
+    <pre><span class="c"># center covariates and fully interact with T => the T coefficient is the ATE,</span>
+<span class="c"># with strictly-not-larger variance than the unadjusted diff-in-means</span>
+m1 = smf.ols(<span class="s">"visit ~ T + recency_c + history_c + ... "</span>
+             <span class="s">"+ C(zip_code) + C(channel) + T:recency_c + T:history_c + ..."</span>,
+             data=sub).fit(cov_type=<span class="s">"HC1"</span>)
+var_reduction = 1 - (m1.bse[<span class="s">"T"</span>]**2) / (m0.bse[<span class="s">"T"</span>]**2)</pre>
+  </section>
+
+  <!-- FINDINGS -->
+  <section class="panel" id="findings">
+    <h2>What the data actually says</h2>
+    <p class="lead">All figures are generated by the script. If they don't render,
+      open this file from inside the repo (they live in <span class="kbd">figures/</span>).</p>
+
+    <div class="callout good"><strong>Step 1 — the experiment is trustworthy.</strong>
+      Max |standardized mean difference| across covariates = <strong>0.009</strong>
+      (rule of thumb &lt; 0.10), and an omnibus test that covariates jointly predict
+      assignment gives <strong>p = 0.76</strong>. Randomization holds, so
+      differences are causal.</div>
+
+    <div class="grid figgrid">
+      <figure><img src="figures/01_balance_love_plot.png" alt="Covariate balance love plot">
+        <figcaption>L2 · Covariate balance — every |SMD| well under the 0.10 line.</figcaption></figure>
+      <figure><img src="figures/02_ate_forest.png" alt="ATE forest plot">
+        <figcaption>L3 · Average visit lift: Men's +7.66pp, Women's +4.52pp — both highly significant.</figcaption></figure>
+    </div>
+
+    <div class="callout warn"><strong>Step 2 — the average lies.</strong> For the
+      Women's email, T&times;womens-affinity = <strong>+6.20pp</strong> and
+      T&times;mens-affinity = <strong>−5.22pp</strong> (both p&nbsp;&lt;&nbsp;1e-4,
+      surviving Benjamini-Hochberg FDR). The Men's email shows no such moderation.</div>
+
+    <table>
+      <thead><tr><th>Women's email — subgroup</th><th>Visit lift</th><th>Read</th></tr></thead>
+      <tbody>
+        <tr><td>Prior women's-merch buyer</td><td class="num pos">+7.31pp</td><td>email is relevant → strong response</td></tr>
+        <tr><td>No women's-merch history</td><td class="num">+1.11pp</td><td>near-inert</td></tr>
+        <tr><td>Prior men's-merch buyer</td><td class="num">+2.18pp</td><td>weak — wrong catalogue</td></tr>
+        <tr><td>No men's-merch history</td><td class="num pos">+7.40pp</td><td>strong</td></tr>
+      </tbody>
+    </table>
+
+    <div class="grid figgrid" style="margin-top:18px">
+      <figure><img src="figures/03_hte_forest.png" alt="HTE forest plot">
+        <figcaption>L5 · Subgroup lifts — note the spread for Women's (right) vs. the
+          flat Men's (left).</figcaption></figure>
+      <figure><img src="figures/04_qini_womens.png" alt="Qini curve, Women's email">
+        <figcaption>L6 · Women's email Qini = 60.4 (lots to rank). Men's = 2.6 (little).</figcaption></figure>
+    </div>
+
+    <div class="callout"><strong>Step 3 — convert it to a decision.</strong> Inverse-
+      propensity policy value on a held-out split. The cost-sensitive policy
+      contacts a customer only when predicted uplift clears the 3pp break-even.</div>
+
+    <table>
+      <thead><tr><th>Policy (net value / 1,000)</th><th>Men's email</th><th>Women's email</th></tr></thead>
+      <tbody>
+        <tr><td>Blanket (contact all)</td><td class="num">$+80.76</td><td class="num">$+16.90</td></tr>
+        <tr><td>Uplift-targeted</td><td class="num">$+78.29</td><td class="num pos">$+33.85</td></tr>
+        <tr><td>Verdict</td><td><span class="pos">contact broadly</span></td><td><span class="pos">target ~59%</span>, −415 contacts</td></tr>
+      </tbody>
+    </table>
+
+    <div class="grid figgrid" style="margin-top:18px">
+      <figure><img src="figures/05_policy_womens.png" alt="Targeting profit curve, Women's">
+        <figcaption>L7 · Women's profit curve peaks well before 100% targeted — proof targeting pays.</figcaption></figure>
+      <figure><img src="figures/05_policy_mens.png" alt="Targeting profit curve, Men's">
+        <figcaption>L7 · Men's curve keeps climbing to ~100% — blanket is optimal.</figcaption></figure>
+    </div>
+
+    <div class="callout good"><strong>Step 4 — it holds up.</strong> Randomization
+      inference (2,000 permutations) on the Women's-email visit effect: p =
+      <strong>0.0000</strong>. Achieved power ≈ <strong>1.00</strong>. All subgroup
+      claims pass FDR control — only the two Women's-email interactions survive,
+      so the story isn't a multiple-testing artifact.</div>
+  </section>
+
+  <!-- INTERVIEW -->
+  <section class="panel" id="interview">
+    <h2>Interview prep</h2>
+    <p class="lead">Every answer is tied to something in <em>this</em> project, not a
+      textbook. Click to expand.</p>
+    <div id="qas"></div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    Built on the Kevin Hillstrom MineThatData E-Mail Analytics Challenge (2008, public domain).
+    Numbers generated by <span class="kbd">hillstrom_ab_analysis.py</span>.
+  </div>
+</footer>
+
+<script>
+const LAYERS = [
+  ["1","Load &amp; validate","Shape, missingness, arm sizes (~21.3k each), outcome base rates.","Shows you check data before trusting it."],
+  ["2","Randomization checks","Covariate balance via SMD love plot + omnibus assignment test.","Causal claims are earned, not assumed (max |SMD| 0.009, p=0.76)."],
+  ["3","Average treatment effect","Diff-in-proportions with Wald CIs; bootstrap CI for skewed spend.","The textbook A/B result everyone expects to see."],
+  ["4","Regression adjustment","Lin (2013) interacted estimator with HC1 robust SEs.","Variance reduction done right; stable estimate re-confirms randomization."],
+  ["5","Heterogeneous effects","Subgroup CATEs + treatment&times;covariate interaction tests.","The twist — where the average lies."],
+  ["6","Uplift modelling","T-learner vs S-learner; Qini curve, coefficient, uplift@k.","Individual treatment effects, not just averages."],
+  ["7","Targeting policy value","IPW policy value at the cost/value break-even threshold.","Turns the model into a decision with a dollar figure."],
+  ["8","Robustness &amp; inference","Randomization inference, Benjamini-Hochberg FDR, retrospective power.","The rigour that separates analysis from a notebook."],
+];
+const layersEl = document.getElementById("layers");
+LAYERS.forEach(([n,t,p,w])=>{
+  const d=document.createElement("div"); d.className="layer";
+  d.innerHTML=`<div class="n">${n}</div><div><h3>${t}</h3><p>${p}</p><div class="why">${w}</div></div>`;
+  layersEl.appendChild(d);
+});
+
+const QAS = [
+  ["How do you know the email effect is causal, not just correlation?",
+   "Treatment was randomly assigned, so I don't have to assume unconfoundedness — I verify it. Layer 2 checks covariate balance across arms: the largest standardized mean difference is 0.009 (well under the 0.10 rule of thumb), and an omnibus logistic test of whether covariates jointly predict assignment returns p=0.76. With balance established, the simple difference in visit rates is an unbiased ATE."],
+  ["The Women's email had a positive average lift — why not just send it to everyone?",
+   "Because the +4.5pp average is an aggregation artifact. The treatment&times;affinity interaction is +6.2pp / −5.2pp with p&lt;1e-4, surviving FDR correction. Broken out: +7.3pp for prior women's-merch buyers vs +1.1pp for everyone else. At any reasonable cost-per-contact, emailing the +1.1pp segment is net-negative. Blanket sending burns budget on customers the email barely moves."],
+  ["What is uplift modelling, and why not just predict who will convert?",
+   "A propensity model predicts who responds; an uplift model predicts who responds <em>because of</em> the treatment — the difference P(visit|treat) − P(visit|control). Those are different people: a loyal customer might visit regardless. I fit both a T-learner (separate treated/control models) and an S-learner (one model with treatment as a feature) and pick the better ranker by Qini. The Qini gap itself is diagnostic: 60.4 for Women's (lots of heterogeneity to exploit) vs 2.6 for Men's (almost none)."],
+  ["You estimated the value of a new targeting policy without running a new experiment. How?",
+   "Inverse-propensity policy value. Because assignment was randomized, the propensity is a known constant, so for any policy π I can form the IPW estimate V(π) = mean of 1{T = π(x)}/P(T = π) · Y over the held-out set — an unbiased estimate of the outcome had we deployed π, no outcome model needed. It cleanly reduces to mean(treated) for 'contact all' and mean(control) for 'contact none', and interpolates for the targeting policy."],
+  ["You ran many subgroup tests. How do you avoid finding effects that aren't real?",
+   "Benjamini-Hochberg FDR control across every interaction tested (Layer 8). Of the six interactions, only the two Women's-email ones survive — the Men's-email interactions wash out. So the headline rests on effects that hold up under multiplicity, not the most extreme of many noisy splits. I also back the primary effect with a 2,000-permutation randomization inference test (p=0.0000)."],
+  ["If the experiment is randomized, why bother with regression adjustment?",
+   "Two reasons. First, variance reduction: the Lin (2013) estimator (center covariates, fully interact with treatment) tightens the CI without biasing the estimate. Second, it's a falsification check — because the point estimate barely moves after adjustment, I can show the randomization wasn't accidentally broken. Here the estimate is stable and the SE shrinks modestly, which is exactly the expected signature."],
+  ["What are the limitations, and what would you do with more time?",
+   "The dollar figures are illustrative assumptions, not Hillstrom's real margins — though the qualitative call is robust to a wide price range. I'd add cross-fitting and calibration checks to the uplift model, model spend directly (it's zero-inflated and skewed, so I bootstrapped its CI rather than trusting a t-test), and ideally validate the policy with a fresh holdout experiment. 'Affinity' is proxied by existing purchase flags; richer features would sharpen it."],
+  ["One sentence: what should the marketing team do Monday?",
+   "Keep sending the Men's email to the whole list, but switch the Women's email to an uplift-targeted send — contact roughly the top 59% by predicted responsiveness, which nearly doubles net value while cutting 415 contacts per 1,000 and sparing the segment the email doesn't move."],
+];
+const qaEl = document.getElementById("qas");
+QAS.forEach(([q,a])=>{
+  const d=document.createElement("div"); d.className="qa";
+  d.innerHTML=`<button>${q}<span class="chev">▾</span></button><div class="a">${a}</div>`;
+  d.querySelector("button").addEventListener("click",()=>d.classList.toggle("open"));
+  qaEl.appendChild(d);
+});
+
+document.querySelectorAll(".tab").forEach(t=>{
+  t.addEventListener("click",()=>{
+    document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
+    document.querySelectorAll(".panel").forEach(x=>x.classList.remove("active"));
+    t.classList.add("active");
+    document.getElementById(t.dataset.tab).classList.add("active");
+    window.scrollTo({top:0,behavior:"smooth"});
+  });
+});
+</script>
+</body>
+</html>

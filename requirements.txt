@@ -1,0 +1,9 @@
+# Tested on Python 3.13 with the pinned versions in the right-hand comments.
+# The >= floors are the minimum that expose every API the script uses
+# (np.trapezoid has a runtime fallback to np.trapz, so NumPy 1.x also works).
+pandas>=2.0          # tested 3.0.3
+numpy>=1.24          # tested 2.5.0
+scipy>=1.10          # tested 1.18.0
+statsmodels>=0.14    # tested 0.14.6
+scikit-learn>=1.2    # tested 1.9.0  (needs OneHotEncoder sparse_output)
+matplotlib>=3.7      # tested 3.11.0
