@@ -11,8 +11,8 @@ env/
 .DS_Store
 Thumbs.db
 
-# Data cache (re-downloaded on first run; ~4 MB)
-data/hillstrom.csv
+# Data cache (re-downloaded on first run; ~4 MB) plus any partial download
+data/
 
 # Keep the committed outputs (figures/ and RESULTS.md) so the repo renders
 # without a run. Comment the lines below out if you'd rather regenerate them.

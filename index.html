@@ -4,6 +4,16 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>When Average Effects Lie — Hillstrom Causal Analysis</title>
+<meta name="description" content="A routine email A/B test where the average effect points to the wrong decision. Causal inference and uplift modelling on the 64,000-customer Hillstrom randomized experiment, turned into a targeting policy." />
+<meta name="author" content="Yougi Jain" />
+<link rel="canonical" href="https://yougijain.github.io/When-Average-Effects-Lie/" />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="When Average Effects Lie" />
+<meta property="og:description" content="The Women's email's +4.5pp average lift is an illusion of aggregation. Causal + uplift analysis of a 64,000-customer randomized email experiment, ending in a targeting policy worth 2x blanket send." />
+<meta property="og:url" content="https://yougijain.github.io/When-Average-Effects-Lie/" />
+<meta property="og:image" content="https://yougijain.github.io/When-Average-Effects-Lie/figures/03_hte_forest.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232c7fb8'/%3E%3Cpath d='M6 22h20M9 22V9M16 22v-7M23 22V13' stroke='%23fff' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E" />
 <style>
   :root{
     --blue:#2c7fb8; --blue-dark:#1c5a85; --red:#c0392b; --green:#41ab5d;
@@ -54,6 +64,9 @@
   tr:last-child td{border-bottom:0}
   td.num{font-variant-numeric:tabular-nums;font-weight:600}
   .pos{color:var(--green)} .neg{color:var(--red)}
+  .tablewrap{overflow-x:auto;-webkit-overflow-scrolling:touch;
+             border-radius:var(--radius);margin-bottom:2px}
+  .tablewrap table{min-width:520px}
   figure{margin:0}
   figure img{width:100%;border:1px solid var(--line);border-radius:12px;background:#fff;box-shadow:var(--shadow)}
   figcaption{font-size:13px;color:var(--muted);margin-top:8px}
@@ -107,7 +120,7 @@
     <button class="tab" data-tab="pipeline">Pipeline</button>
     <button class="tab" data-tab="code">Code</button>
     <button class="tab" data-tab="findings">Findings</button>
-    <button class="tab" data-tab="interview">Interview Prep</button>
+    <button class="tab" data-tab="interview">Method Q&amp;A</button>
   </div>
 </nav>
 
@@ -138,7 +151,7 @@
     </div>
 
     <h2 style="margin-top:28px">The recommendation</h2>
-    <table>
+    <div class="tablewrap"><table>
       <thead><tr><th>Campaign</th><th>Avg. visit lift (95% CI)</th><th>Heterogeneity</th><th>Policy</th></tr></thead>
       <tbody>
         <tr>
@@ -151,10 +164,10 @@
           <td><strong>Women's email</strong></td>
           <td class="num">+4.52pp <span class="note">[+3.89, +5.16]</span></td>
           <td>High — T&times;affinity p&nbsp;&lt;&nbsp;1e-4</td>
-          <td><span class="pos">Target the ~59%</span> with affinity → ~2&times; net value, 415 fewer contacts / 1,000</td>
+          <td><span class="pos">Target the ~59%</span> with affinity → ~2&times; net value, 409 fewer contacts / 1,000</td>
         </tr>
       </tbody>
-    </table>
+    </table></div>
     <p class="note">Net-value figures use illustrative economics ($2 / incremental
       visit, $0.06 / contact ⇒ 3pp break-even). The qualitative call is robust to
       the exact prices.</p>
@@ -165,8 +178,8 @@
     <h2>Eight layers, one script</h2>
     <p class="lead"><span class="kbd">hillstrom_ab_analysis.py</span> runs the full
       pipeline top to bottom, writes <span class="kbd">RESULTS.md</span>, and saves
-      seven figures. Each layer maps to something experimentation interviewers
-      actually probe.</p>
+      seven figures. Each layer answers a question a reviewer
+      will actually ask.</p>
     <div class="grid" id="layers"></div>
   </section>
 
@@ -235,7 +248,7 @@ var_reduction = 1 - (m1.bse[<span class="s">"T"</span>]**2) / (m0.bse[<span clas
       T&times;mens-affinity = <strong>−5.22pp</strong> (both p&nbsp;&lt;&nbsp;1e-4,
       surviving Benjamini-Hochberg FDR). The Men's email shows no such moderation.</div>
 
-    <table>
+    <div class="tablewrap"><table>
       <thead><tr><th>Women's email — subgroup</th><th>Visit lift</th><th>Read</th></tr></thead>
       <tbody>
         <tr><td>Prior women's-merch buyer</td><td class="num pos">+7.31pp</td><td>email is relevant → strong response</td></tr>
@@ -243,28 +256,28 @@ var_reduction = 1 - (m1.bse[<span class="s">"T"</span>]**2) / (m0.bse[<span clas
         <tr><td>Prior men's-merch buyer</td><td class="num">+2.18pp</td><td>weak — wrong catalogue</td></tr>
         <tr><td>No men's-merch history</td><td class="num pos">+7.40pp</td><td>strong</td></tr>
       </tbody>
-    </table>
+    </table></div>
 
     <div class="grid figgrid" style="margin-top:18px">
       <figure><img src="figures/03_hte_forest.png" alt="HTE forest plot">
         <figcaption>L5 · Subgroup lifts — note the spread for Women's (right) vs. the
           flat Men's (left).</figcaption></figure>
       <figure><img src="figures/04_qini_womens.png" alt="Qini curve, Women's email">
-        <figcaption>L6 · Women's email Qini = 60.4 (lots to rank). Men's = 2.6 (little).</figcaption></figure>
+        <figcaption>L6 · Women's email Qini = 61.8 (lots to rank). Men's = 6.5 (little).</figcaption></figure>
     </div>
 
     <div class="callout"><strong>Step 3 — convert it to a decision.</strong> Inverse-
       propensity policy value on a held-out split. The cost-sensitive policy
       contacts a customer only when predicted uplift clears the 3pp break-even.</div>
 
-    <table>
+    <div class="tablewrap"><table>
       <thead><tr><th>Policy (net value / 1,000)</th><th>Men's email</th><th>Women's email</th></tr></thead>
       <tbody>
         <tr><td>Blanket (contact all)</td><td class="num">$+80.76</td><td class="num">$+16.90</td></tr>
-        <tr><td>Uplift-targeted</td><td class="num">$+78.29</td><td class="num pos">$+33.85</td></tr>
-        <tr><td>Verdict</td><td><span class="pos">contact broadly</span></td><td><span class="pos">target ~59%</span>, −415 contacts</td></tr>
+        <tr><td>Uplift-targeted</td><td class="num">$+75.63</td><td class="num pos">$+36.17</td></tr>
+        <tr><td>Verdict</td><td><span class="pos">contact broadly</span></td><td><span class="pos">target ~59%</span>, −409 contacts</td></tr>
       </tbody>
-    </table>
+    </table></div>
 
     <div class="grid figgrid" style="margin-top:18px">
       <figure><img src="figures/05_policy_womens.png" alt="Targeting profit curve, Women's">
@@ -282,9 +295,9 @@ var_reduction = 1 - (m1.bse[<span class="s">"T"</span>]**2) / (m0.bse[<span clas
 
   <!-- INTERVIEW -->
   <section class="panel" id="interview">
-    <h2>Interview prep</h2>
-    <p class="lead">Every answer is tied to something in <em>this</em> project, not a
-      textbook. Click to expand.</p>
+    <h2>Defending the method</h2>
+    <p class="lead">The questions this analysis invites, answered from <em>this</em>
+      project rather than a textbook. Click to expand.</p>
     <div id="qas"></div>
   </section>
 
@@ -293,7 +306,10 @@ var_reduction = 1 - (m1.bse[<span class="s">"T"</span>]**2) / (m0.bse[<span clas
 <footer>
   <div class="wrap">
     Built on the Kevin Hillstrom MineThatData E-Mail Analytics Challenge (2008, public domain).
-    Numbers generated by <span class="kbd">hillstrom_ab_analysis.py</span>.
+    Every figure and number on this page comes from
+    <span class="kbd">hillstrom_ab_analysis.py</span> — see
+    <a href="https://github.com/yougijain/When-Average-Effects-Lie">the source on GitHub</a>
+    and <a href="https://github.com/yougijain/When-Average-Effects-Lie/blob/main/RESULTS.md">the generated results</a>.
   </div>
 </footer>
 
@@ -321,7 +337,7 @@ const QAS = [
   ["The Women's email had a positive average lift — why not just send it to everyone?",
    "Because the +4.5pp average is an aggregation artifact. The treatment&times;affinity interaction is +6.2pp / −5.2pp with p&lt;1e-4, surviving FDR correction. Broken out: +7.3pp for prior women's-merch buyers vs +1.1pp for everyone else. At any reasonable cost-per-contact, emailing the +1.1pp segment is net-negative. Blanket sending burns budget on customers the email barely moves."],
   ["What is uplift modelling, and why not just predict who will convert?",
-   "A propensity model predicts who responds; an uplift model predicts who responds <em>because of</em> the treatment — the difference P(visit|treat) − P(visit|control). Those are different people: a loyal customer might visit regardless. I fit both a T-learner (separate treated/control models) and an S-learner (one model with treatment as a feature) and pick the better ranker by Qini. The Qini gap itself is diagnostic: 60.4 for Women's (lots of heterogeneity to exploit) vs 2.6 for Men's (almost none)."],
+   "A propensity model predicts who responds; an uplift model predicts who responds <em>because of</em> the treatment — the difference P(visit|treat) − P(visit|control). Those are different people: a loyal customer might visit regardless. I fit both a T-learner (separate treated/control models) and an S-learner (one model with treatment as a feature) and pick the better ranker by Qini. The Qini gap itself is diagnostic: 61.8 for Women's (lots of heterogeneity to exploit) vs 6.5 for Men's (almost none)."],
   ["You estimated the value of a new targeting policy without running a new experiment. How?",
    "Inverse-propensity policy value. Because assignment was randomized, the propensity is a known constant, so for any policy π I can form the IPW estimate V(π) = mean of 1{T = π(x)}/P(T = π) · Y over the held-out set — an unbiased estimate of the outcome had we deployed π, no outcome model needed. It cleanly reduces to mean(treated) for 'contact all' and mean(control) for 'contact none', and interpolates for the targeting policy."],
   ["You ran many subgroup tests. How do you avoid finding effects that aren't real?",
@@ -331,7 +347,7 @@ const QAS = [
   ["What are the limitations, and what would you do with more time?",
    "The dollar figures are illustrative assumptions, not Hillstrom's real margins — though the qualitative call is robust to a wide price range. I'd add cross-fitting and calibration checks to the uplift model, model spend directly (it's zero-inflated and skewed, so I bootstrapped its CI rather than trusting a t-test), and ideally validate the policy with a fresh holdout experiment. 'Affinity' is proxied by existing purchase flags; richer features would sharpen it."],
   ["One sentence: what should the marketing team do Monday?",
-   "Keep sending the Men's email to the whole list, but switch the Women's email to an uplift-targeted send — contact roughly the top 59% by predicted responsiveness, which nearly doubles net value while cutting 415 contacts per 1,000 and sparing the segment the email doesn't move."],
+   "Keep sending the Men's email to the whole list, but switch the Women's email to an uplift-targeted send — contact roughly the top 59% by predicted responsiveness, which nearly doubles net value while cutting 409 contacts per 1,000 and sparing the segment the email doesn't move."],
 ];
 const qaEl = document.getElementById("qas");
 QAS.forEach(([q,a])=>{

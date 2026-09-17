@@ -72,9 +72,14 @@ FIG_DIR = ROOT / "figures"
 DATA_PATH = DATA_DIR / "hillstrom.csv"
 RESULTS_PATH = ROOT / "RESULTS.md"
 
-DATA_URL = (
-    "http://www.minethatdata.com/"
+# Tried in order. The canonical host only speaks plain HTTP, which some
+# corporate proxies refuse outright, so try TLS first and fall back.
+_DATA_FILE = (
     "Kevin_Hillstrom_MineThatData_E-MailAnalytics_DataMiningChallenge_2008.03.20.csv"
+)
+DATA_URLS = (
+    f"https://www.minethatdata.com/{_DATA_FILE}",
+    f"http://www.minethatdata.com/{_DATA_FILE}",
 )
 
 CONTROL = "No E-Mail"
@@ -160,18 +165,45 @@ def standardized_mean_diff(x_t, x_c):
 # --------------------------------------------------------------------------- #
 # Layer 1 - Load & validate                                                   #
 # --------------------------------------------------------------------------- #
+def _download_dataset() -> None:  # pragma: no cover - network dependent
+    """Fetch the dataset to a temp file, validate it, then move it into place.
+
+    urlretrieve saves whatever the server returns, including an HTML error
+    page. Writing straight to DATA_PATH would poison the cache: the file then
+    exists, every later run skips the download, and the failure surfaces as a
+    cryptic parse error instead of a network one. So: download aside, check the
+    header, and only then commit the file.
+    """
+    tmp = DATA_PATH.with_suffix(".part")
+    failures = []
+    for url in DATA_URLS:
+        try:
+            urlretrieve(url, tmp)
+            first = tmp.read_text(encoding="utf-8", errors="replace").split("\n", 1)[0]
+            if "recency" not in first.lower():
+                raise ValueError(f"not the expected CSV (first line: {first[:80]!r})")
+            tmp.replace(DATA_PATH)
+            print(f"  downloaded from {url}")
+            return
+        except Exception as exc:
+            failures.append(f"    {url}\n      -> {exc}")
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    sys.exit(
+        "  Could not download the dataset. Tried:\n"
+        + "\n".join(failures)
+        + f"\n  Download it manually to {DATA_PATH} and re-run:\n"
+        + f"    {DATA_URLS[0]}"
+    )
+
+
 def load_data() -> pd.DataFrame:
     banner("LAYER 1  -  Load & validate")
     DATA_DIR.mkdir(exist_ok=True)
     if not DATA_PATH.exists():
         print(f"  downloading dataset -> {DATA_PATH}")
-        try:
-            urlretrieve(DATA_URL, DATA_PATH)
-        except Exception as exc:  # pragma: no cover - network dependent
-            sys.exit(
-                f"  Could not download the dataset ({exc}).\n"
-                f"  Manually download {DATA_URL} to {DATA_PATH} and re-run."
-            )
+        _download_dataset()
     df = pd.read_csv(DATA_PATH)
 
     # The raw file misspells the zip label as 'Surburban'; normalize for display.
