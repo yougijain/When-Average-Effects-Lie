@@ -2,10 +2,16 @@
 # (index.html) plus the committed figures/, so there is nothing to build -
 # this just uploads and publishes.
 #
-# configure-pages runs with enablement: true, so it creates and configures the
-# Pages site itself if the repo doesn't have one yet - no Settings -> Pages
-# click needed. That's why this workflow exists: the first run failed with
-# "Get Pages site failed ... Not Found" because Pages had never been enabled.
+# Publishing needs Settings -> Pages -> Source = "GitHub Actions", and that
+# step has to be done by a human: GITHUB_TOKEN cannot create a Pages site.
+# configure-pages' `enablement: true` was tried and returns 403 "Resource not
+# accessible by integration", because POST /repos/{owner}/{repo}/pages wants
+# admin, which the workflow token never has.
+#
+# So the job checks first and skips with a notice when Pages isn't pointed at
+# Actions, rather than failing. An unconfigured repo gets a green run with an
+# explanation instead of a red X, and the next push publishes once the setting
+# is in place.
 name: Deploy site to Pages
 
 on:
@@ -31,12 +37,35 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/configure-pages@v5
-        with:
-          # Create the Pages site if it doesn't exist, instead of 404ing.
-          enablement: true
-      - uses: actions/upload-pages-artifact@v3
+
+      - id: check
+        name: Check that Pages builds from Actions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          # A 404 here means there is no Pages site at all. build_type
+          # "legacy" means it is set to deploy from a branch, in which case
+          # this workflow must not try to publish over it.
+          body=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pages" || true)
+          build_type=$(printf '%s' "$body" | jq -r '.build_type // empty' 2>/dev/null || true)
+          echo "build_type=${build_type:-none}"
+          if [ "$build_type" = "workflow" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "Pages builds from Actions - deploying."
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Pages not configured::Pages is not set to build from GitHub Actions (build_type=${build_type:-none}), so there is nothing to publish to. Set Settings then Pages then Source = GitHub Actions, and re-run this workflow. Skipping rather than failing."
+          fi
+
+      - if: steps.check.outputs.ready == 'true'
+        uses: actions/configure-pages@v5
+
+      - if: steps.check.outputs.ready == 'true'
+        uses: actions/upload-pages-artifact@v3
         with:
           path: .          # the action already excludes .git and .github
+
       - id: deployment
+        if: steps.check.outputs.ready == 'true'
         uses: actions/deploy-pages@v4
