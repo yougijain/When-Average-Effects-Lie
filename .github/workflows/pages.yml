@@ -1,0 +1,36 @@
+# Deploys the repo root to GitHub Pages. The site is a single static file
+# (index.html) plus the committed figures/, so there is nothing to build -
+# this just uploads and publishes.
+#
+# Requires Settings -> Pages -> Source = "GitHub Actions".
+name: Deploy site to Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a running deploy finish rather than cancelling it mid-publish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .          # the action already excludes .git and .github
+      - id: deployment
+        uses: actions/deploy-pages@v4
