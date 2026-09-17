@@ -2,7 +2,10 @@
 # (index.html) plus the committed figures/, so there is nothing to build -
 # this just uploads and publishes.
 #
-# Requires Settings -> Pages -> Source = "GitHub Actions".
+# configure-pages runs with enablement: true, so it creates and configures the
+# Pages site itself if the repo doesn't have one yet - no Settings -> Pages
+# click needed. That's why this workflow exists: the first run failed with
+# "Get Pages site failed ... Not Found" because Pages had never been enabled.
 name: Deploy site to Pages
 
 on:
@@ -27,8 +30,11 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/configure-pages@v5
+        with:
+          # Create the Pages site if it doesn't exist, instead of 404ing.
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: .          # the action already excludes .git and .github
