@@ -1,6 +1,9 @@
 # When Average Effects Lie
 ### Turning a routine email A/B test into a targeting strategy with causal + uplift modelling
 
+**[→ Read the interactive write-up](https://yougijain.github.io/When-Average-Effects-Lie/)**
+ · [Generated results](RESULTS.md) · [The analysis script](hillstrom_ab_analysis.py)
+
 **The business question:** A retailer runs two promotional emails — one featuring
 men's merchandise, one featuring women's. Both "work" on average. So which
 customers should actually receive which email next quarter — and who should we
@@ -27,10 +30,10 @@ So the two campaigns need opposite playbooks:
 | Campaign | Avg. visit lift | Heterogeneity | Recommended policy |
 |---|---|---|---|
 | **Men's email** | **+7.66pp** `[+7.00, +8.32]` | low (interactions n.s. after FDR) | **Contact broadly** — targeting adds nothing |
-| **Women's email** | **+4.52pp** `[+3.89, +5.16]` | **high** (T×affinity p < 1e-4) | **Target the ~59%** with real affinity — nearly **doubles** net value while sending **415 fewer contacts per 1,000** |
+| **Women's email** | **+4.52pp** `[+3.89, +5.16]` | **high** (T×affinity p < 1e-4) | **Target the ~59%** with real affinity — **more than doubles** net value while sending **409 fewer contacts per 1,000** |
 
 Under illustrative economics ($2 / incremental visit, $0.06 / contact ⇒ 3pp
-break-even), the uplift-targeted Women's policy returns **\$33.85 vs \$16.90 per
+break-even), the uplift-targeted Women's policy returns **\$36.17 vs \$16.90 per
 1,000** for blanket emailing. The qualitative call — *broad for Men's, selective
 for Women's* — holds across a wide range of those prices.
 
@@ -79,6 +82,18 @@ The script auto-downloads the dataset (~4 MB) to `data/` on first run and caches
 it. Full run is well under a minute. Open `RESULTS.md` for the headline numbers
 and `figures/` for the charts.
 
+`requirements.txt` is pinned to the exact versions the committed `RESULTS.md` and
+figures were produced with. Layers 1–5 are deterministic under any compatible
+stack, but the gradient-boosted uplift models in Layer 6 can move a Qini point
+across scikit-learn releases — so install the pins if you want the committed
+numbers to reproduce digit-for-digit.
+
+### The write-up site
+`index.html` is a single self-contained page (no build step, no JS libraries, no
+CDN calls) that reads the committed figures out of `figures/`. Open it locally by
+double-clicking it, or read the
+[hosted version](https://yougijain.github.io/When-Average-Effects-Lie/).
+
 ---
 
 ## A few methodology choices worth defending
@@ -87,8 +102,8 @@ and `figures/` for the charts.
   statistical power. `conversion` (~0.9%) and `spend` are reported too, but the
   decision rests on the well-powered metric.
 - **T-learner *and* S-learner.** Reporting both, and selecting the better ranker
-  by Qini, is honest about model risk. (Men's: T-learner, Qini 2.6 — little to
-  rank. Women's: S-learner, Qini 60.4 — lots to rank.) The huge gap in Qini
+  by Qini, is honest about model risk. (Men's: T-learner, Qini 6.5 — little to
+  rank. Women's: S-learner, Qini 61.8 — lots to rank.) The huge gap in Qini
   *is* the heterogeneity story in one number.
 - **IPW policy value.** Because treatment was randomized, the propensity is a
   known constant, so the inverse-propensity policy-value estimator is unbiased —
@@ -104,8 +119,18 @@ and `figures/` for the charts.
 - The dollar figures in Layer 7 are **illustrative assumptions**, not Hillstrom's
   real margins — they exist to demonstrate cost-sensitive targeting. The
   *qualitative* recommendation is robust to the exact prices.
-- Uplift models are evaluated on a held-out split; a production version would add
-  cross-fitting and calibration checks.
+- Uplift models are fit on 65% of each two-arm subset and scored on the held-out
+  35%. The T-learner-vs-S-learner choice is made by Qini **on that same held-out
+  split**, so the winning learner's reported Qini is mildly optimistic (a
+  winner's curse over two candidates). The targeting *threshold* is not tuned —
+  it is fixed at the economic break-even — so the policy-value comparison itself
+  isn't threshold-shopped. A production version would use a three-way split or
+  cross-fitting for model selection, plus calibration checks.
+- Layer 7's net-value figures are computed on that 35% held-out split, where the
+  realized lift runs a little under the full-sample ATE (~3.8pp vs +4.52pp for
+  Women's, ~7.0pp vs +7.66pp for Men's). That is sampling noise, not a
+  contradiction — but it is why blanket net value (\$16.90 / 1,000 for Women's)
+  doesn't reproduce if you multiply the headline ATE by \$2.
 - "Affinity" here is proxied by past-purchase flags already in the data; richer
   features would sharpen the policy.
 
@@ -122,4 +147,4 @@ number *means*, which is exactly what an experimental-psych training drills.
 ---
 
 *Dataset: Kevin Hillstrom, MineThatData E-Mail Analytics and Data Mining
-Challenge (2008). Public domain.*
+Challenge (2008). Public domain. Code released under the [MIT License](LICENSE).*
