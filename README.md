@@ -89,9 +89,10 @@ across scikit-learn releases — so install the pins if you want the committed
 numbers to reproduce digit-for-digit.
 
 ### The write-up site
-`index.html` is a single self-contained page (no build step, no JS libraries, no
-CDN calls) that reads the committed figures out of `figures/`. Open it locally by
-double-clicking it, or read the
+`index.html` is a single self-contained page: no build step, no JavaScript, no
+CDN calls. Its only assets are the committed figures in `figures/` and two
+self-hosted font files in `fonts/` (Source Serif 4, SIL Open Font License).
+Open it locally by double-clicking it, or read the
 [hosted version](https://yougijain.github.io/When-Average-Effects-Lie/).
 
 ---
