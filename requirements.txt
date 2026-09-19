@@ -1,8 +1,10 @@
 # Pinned to the versions the committed RESULTS.md and figures/ were generated
-# with. The pins are deliberate: the estimators in Layers 3-5 are exactly
-# reproducible, but the gradient-boosted uplift models in Layer 6 can shift a
-# Qini point or two across scikit-learn releases, so an unpinned rerun will not
-# reproduce RESULTS.md digit-for-digit. Tested on Python 3.13.
+# with (Python 3.13.12, x86-64 Linux). Layers 1-5 reproduce exactly under any
+# compatible stack. Layer 6's gradient-boosted uplift models are the one part
+# that has been observed to give different numbers in a different environment,
+# so they are what the pins protect.
+#
+# Needs Python 3.12 or newer: numpy 2.5 and scipy 1.18 have no wheels for 3.11.
 pandas==3.0.3
 numpy==2.5.0
 scipy==1.18.0

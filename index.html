@@ -37,8 +37,8 @@
   --ink-3:#6f6f68;
   --rule:#d8d6cf;
   --rule-strong:#1b1b1a;
-  --accent:#1f5f8b;          /* the figures' blue, deepened for text contrast */
-  --accent-strong:#164a6e;
+  --accent:#1a5e94;          /* the figures' blue; 6.7:1 on the paper */
+  --accent-strong:#154c78;
   --wash:#f4f3ee;            /* code and inline-note background */
 
   --measure:640px;           /* ~70 characters of Source Serif at 19px */
@@ -267,7 +267,7 @@ pre .k{font-weight:600}
 </table>
 </div>
 
-<p>Under illustrative economics&thinsp;&mdash;&thinsp;a visit worth $2, a contact costing 6&cent;, so a contact pays for itself above a 3-point lift<label for="sn-1" class="sn"></label><input type="checkbox" id="sn-1" class="sn-toggle"><span class="sidenote">The break-even lift is cost divided by value: $0.06&thinsp;/&thinsp;$2 = 3 percentage points. Move either price and the threshold moves with it. But the qualitative call is the same for any break-even that sits between the Women&rsquo;s email&rsquo;s 1.1-point and 7.3-point segments, and every Men&rsquo;s segment clears 6.9 points, so &ldquo;broad for Men&rsquo;s, selective for Women&rsquo;s&rdquo; survives a wide range of prices.</span>&thinsp;&mdash;&thinsp;targeting the Women&rsquo;s email returns <strong>$36.17 per 1,000 customers</strong> against <strong>$16.90</strong> for sending it to all of them, while sending 409 fewer emails. The prices are assumptions. The shape of the answer is not.</p>
+<p>Under illustrative economics&thinsp;&mdash;&thinsp;a visit worth $2, a contact costing 6&cent;, so a contact pays for itself above a 3-point lift<label for="sn-1" class="sn"></label><input type="checkbox" id="sn-1" class="sn-toggle"><span class="sidenote">The break-even lift is cost divided by value: $0.06&thinsp;/&thinsp;$2 = 3 percentage points. Move either price and the threshold moves with it. But the qualitative call is the same for any break-even that sits between the Women&rsquo;s email&rsquo;s 1.1-point and 7.3-point segments, and every Men&rsquo;s segment clears 6.9 points, so &ldquo;broad for Men&rsquo;s, selective for Women&rsquo;s&rdquo; survives a wide range of prices.</span>&thinsp;&mdash;&thinsp;targeting the Women&rsquo;s email returns <strong>$33.85 per 1,000 customers</strong> against <strong>$16.90</strong> for sending it to all of them, while sending 415 fewer emails. The prices are assumptions. The shape of the answer is not.</p>
 
 <figure class="wide numbered">
   <div class="scroll"><img src="figures/03_hte_forest.png" alt="Two forest plots of visit-rate lift by customer segment. Left, the Men's email: every segment's estimate sits between roughly 7 and 8 percentage points. Right, the Women's email: customers with prior women's-merchandise purchases show about 7.3 points, those without about 1.1, and prior men's-merchandise buyers about 2.2; other segments spread between 3 and 5." width="1560" height="650" /></div>
@@ -342,7 +342,7 @@ pre .k{font-weight:600}
     <img src="figures/04_qini_mens.png" alt="Qini curve for the Men's email. Both the T-learner and S-learner curves track the random-targeting diagonal closely." width="850" height="650" />
     <img src="figures/04_qini_womens.png" alt="Qini curve for the Women's email. Both learners bow well above the diagonal; the S-learner reaches about 280 cumulative incremental visits by 60% of customers targeted." width="850" height="650" />
   </div>
-  <figcaption>Qini curves on the held-out split. Men&rsquo;s (left): both learners hug the random-targeting diagonal, for a Qini coefficient of 6.5, because there is almost nothing to rank. Women&rsquo;s (right): the S-learner reaches 61.8, pulling the responsive customers to the front of the list. The difference between the panels is the heterogeneity story in one number.</figcaption>
+  <figcaption>Qini curves on the held-out split. Men&rsquo;s (left): both learners hug the random-targeting diagonal, for a Qini coefficient of 2.6, because there is almost nothing to rank. Women&rsquo;s (right): the S-learner reaches 60.4, pulling the responsive customers to the front of the list. The difference between the panels is the heterogeneity story in one number.</figcaption>
 </figure>
 
 <p>The better ranker then becomes a decision rule with two ingredients. The first is the threshold: a customer is contacted only if their predicted uplift clears the economic break-even, cost divided by value, 3 points. Not &ldquo;uplift greater than zero&rdquo;, which would recommend emailing anyone the email moves at all, however little. The second is the valuation. Because assignment was randomized, the propensity is a known constant, so the value of <em>any</em> rule can be estimated on the held-out arm data by inverse-propensity weighting, with no outcome model in the loop.<label for="sn-6" class="sn"></label><input type="checkbox" id="sn-6" class="sn-toggle"><span class="sidenote">For a policy &pi;, the estimate is the mean over held-out customers of <span class="num">1{T = &pi;(x)}&thinsp;/&thinsp;P(T = &pi;(x))&thinsp;&middot;&thinsp;Y</span>: an unbiased estimate of the outcome had &pi; been deployed. It reduces to the treated-arm mean for &ldquo;contact everyone&rdquo; and the control-arm mean for &ldquo;contact no one&rdquo;, and interpolates for anything in between.</span></p>
@@ -365,13 +365,13 @@ pi = (score &gt; breakeven).astype(int)</code></pre>
   <thead><tr><th>Policy</th><th class="n">Men&rsquo;s email</th><th class="n">Women&rsquo;s email</th></tr></thead>
   <tbody>
     <tr><td>Contact everyone</td><td class="n">$80.76</td><td class="n">$16.90</td></tr>
-    <tr><td>Contact if predicted uplift exceeds 3 pp</td><td class="n">$75.63</td><td class="n hl">$36.17</td></tr>
-    <tr><td>Contacts sent per 1,000 under that rule</td><td class="n">&mdash;</td><td class="n">591</td></tr>
+    <tr><td>Contact if predicted uplift exceeds 3 pp</td><td class="n">$78.29</td><td class="n hl">$33.85</td></tr>
+    <tr><td>Contacts sent per 1,000 under that rule</td><td class="n">916</td><td class="n">585</td></tr>
   </tbody>
 </table>
 </div>
 
-<p>The Women&rsquo;s rule contacts 59% of customers, 409 fewer per thousand than the blanket send, and more than doubles net value. The Men&rsquo;s rule can only lose: every segment clears the break-even, so any customer it drops was worth contacting, and it comes in about five dollars under the blanket send. Send the Men&rsquo;s email to everyone.</p>
+<p>The Women&rsquo;s rule contacts 59% of customers, 415 fewer per thousand than the blanket send, and doubles net value. The Men&rsquo;s rule can only lose: every segment clears the break-even, so the 8% of customers it drops were worth contacting, and it comes in about two and a half dollars under the blanket send. Send the Men&rsquo;s email to everyone.</p>
 
 <figure class="wide numbered">
   <div class="pair">
@@ -414,7 +414,7 @@ pi = (score &gt; breakeven).astype(int)</code></pre>
 pip install -r requirements.txt
 python hillstrom_ab_analysis.py</code></pre>
 
-<p><code>requirements.txt</code> is pinned to the exact versions the committed results came from. The gradient-boosted uplift models in stage six can move a Qini point across scikit-learn releases even with every seed fixed, so the pins are what make <code>RESULTS.md</code> reproduce digit for digit.</p>
+<p><code>requirements.txt</code> is pinned to the exact versions the committed results and figures came from, and needs Python 3.12 or newer. Stages one to five reproduce to the last digit under any compatible stack. The gradient-boosted uplift models in stage six are the one place the numbers have moved between environments: an earlier run of this same script recorded Qini coefficients of 6.5 and 61.8 and a targeted value of $36.17, and no environment I can build today reproduces that, with or without the pins. The numbers on this page are from the pinned environment, run twice, so they are the ones I can stand behind.</p>
 
 <footer class="colophon">
   <p>Data: Kevin Hillstrom, <em>MineThatData E-Mail Analytics and Data Mining Challenge</em> (2008), public domain. Code released under the MIT License; <a href="https://github.com/yougijain/When-Average-Effects-Lie">source and generated results on GitHub</a>.</p>
