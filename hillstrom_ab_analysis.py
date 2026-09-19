@@ -48,6 +48,7 @@ TRAPEZOID = getattr(np, "trapezoid", getattr(np, "trapz", None))
 import matplotlib
 matplotlib.use("Agg")  # headless / file output
 import matplotlib.pyplot as plt
+from matplotlib.ticker import PercentFormatter
 
 import statsmodels.formula.api as smf
 from statsmodels.stats.power import NormalIndPower
@@ -100,6 +101,78 @@ PRIMARY_OUTCOME = "visit"  # highest base-rate => most statistical power
 # the women's-email heterogeneity gap (~1pp for low-affinity vs ~7pp for high).
 VALUE_PER_VISIT = 2.00   # $ expected downstream value of one incremental visit
 COST_PER_EMAIL = 0.06    # $ fully-loaded cost of one contact (send + list fatigue)
+
+# --------------------------------------------------------------------------- #
+# Figure style - matches the write-up page (index.html)                       #
+# --------------------------------------------------------------------------- #
+# Same paper, ink and rule colours as the page's CSS. BLUE and RUST are the two
+# categorical slots (T-learner / S-learner); they were checked for colour-vision
+# separation (Delta E 18.5 under protanopia) and for chroma, which is why BLUE is
+# a step more saturated than the page's original link colour - the page now uses
+# this value too, so chart and prose share one blue.
+PAPER, INK, INK2, INK3, RULE = "#fdfdfb", "#1b1b1a", "#4a4a46", "#6f6f68", "#d8d6cf"
+BLUE, RUST = "#1a5e94", "#b4561f"
+DASH = (0, (4, 3))                       # for threshold / reference lines only
+FONT_FILE = ROOT / "fonts" / "SourceSerif4-normal.ttf"
+ARM_LABEL = {MENS: "Men's email", WOMENS: "Women's email"}
+
+
+def _setup_style() -> None:
+    """Editorial defaults: the page's typeface and palette, no chart chrome."""
+    from matplotlib import font_manager
+    family = "DejaVu Serif"
+    if FONT_FILE.exists():
+        font_manager.fontManager.addfont(str(FONT_FILE))
+        family = "Source Serif 4"
+    plt.rcParams.update({
+        "font.family": family, "font.size": 9.5, "text.color": INK,
+        "axes.titlesize": 10.5, "axes.titleweight": "normal", "axes.titlelocation": "left",
+        "axes.titlecolor": INK, "axes.titlepad": 10,
+        "axes.labelsize": 9, "axes.labelcolor": INK2,
+        "axes.edgecolor": RULE, "axes.linewidth": 0.8,
+        "axes.spines.top": False, "axes.spines.right": False, "axes.axisbelow": True,
+        "axes.facecolor": PAPER, "figure.facecolor": PAPER, "savefig.facecolor": PAPER,
+        "xtick.color": RULE, "ytick.color": RULE,
+        "xtick.labelcolor": INK2, "ytick.labelcolor": INK2,
+        "xtick.labelsize": 8.5, "ytick.labelsize": 8.5,
+        "xtick.major.size": 3, "ytick.major.size": 3,
+        "grid.color": RULE, "grid.linewidth": 0.6, "grid.linestyle": "-",
+        "legend.frameon": False, "legend.fontsize": 8.5, "legend.labelcolor": INK2,
+        "lines.linewidth": 1.6, "lines.solid_capstyle": "round", "lines.solid_joinstyle": "round",
+        "savefig.dpi": 200, "savefig.bbox": "tight", "savefig.pad_inches": 0.12,
+    })
+
+
+def _pretty_covariate(name: str) -> str:
+    """'zip_code=Rural' -> 'ZIP code: Rural'; 'mens' -> \"Prior men's purchase\"."""
+    base = {
+        "recency": "Recency (months)", "history": "Spend history ($)",
+        "history_seg_ord": "History segment", "mens": "Prior men's purchase",
+        "womens": "Prior women's purchase", "newbie": "New customer",
+    }
+    if "=" in name:
+        col, level = name.split("=", 1)
+        return f"{'ZIP code' if col == 'zip_code' else col.capitalize()}: {level}"
+    return base.get(name, name)
+
+
+def _pretty_segment(moderator: str, level) -> str:
+    """Subgroup row label: the moderator's display name plus its level."""
+    if moderator.startswith("mens"):
+        return "Prior men's purchase" if level == 1 else "No prior men's purchase"
+    if moderator.startswith("womens"):
+        return "Prior women's purchase" if level == 1 else "No prior women's purchase"
+    if moderator.startswith("newbie"):
+        return "New customer" if level == 1 else "Existing customer"
+    if moderator.startswith("zip"):
+        return f"ZIP code: {level}"
+    return f"{moderator.capitalize()}: {level}"
+
+
+def _hide_left_spine(ax) -> None:
+    """Dot-and-interval plots read better without a y-axis rule and tick marks."""
+    ax.spines["left"].set_visible(False)
+    ax.tick_params(axis="y", length=0)
 
 # Collector for everything that ends up in RESULTS.md
 REPORT: dict = {}
@@ -285,17 +358,22 @@ def layer2_balance(df: pd.DataFrame) -> pd.DataFrame:
 
 def _plot_love(bal: pd.DataFrame) -> None:
     FIG_DIR.mkdir(exist_ok=True)
-    fig, ax = plt.subplots(figsize=(7, 5))
     order = bal.sort_values("abs_smd")
-    colors = ["#c0392b" if v > 0.1 else "#2c7fb8" for v in order["abs_smd"]]
-    ax.hlines(order["covariate"], 0, order["abs_smd"], color=colors, lw=2)
-    ax.plot(order["abs_smd"], order["covariate"], "o", color="#2c7fb8")
-    ax.axvline(0.1, ls="--", color="#c0392b", lw=1, label="0.10 threshold")
-    ax.set_xlabel("|Standardized mean difference|")
-    ax.set_title("Covariate balance: email vs. control (love plot)")
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig(FIG_DIR / "01_balance_love_plot.png", dpi=130)
+    y = np.arange(len(order))
+    fig, ax = plt.subplots(figsize=(6.4, 4.4))
+    ax.hlines(y, 0, order["abs_smd"], color=BLUE, lw=1.4)
+    ax.plot(order["abs_smd"], y, "o", color=BLUE, ms=6, mec=PAPER, mew=1.2)
+    # The threshold is a reference, not a series: dashed, labelled in place, no legend.
+    ax.axvline(0.10, ls=DASH, color=INK3, lw=0.9)
+    ax.text(0.097, y[-1] + 0.15, "0.10, the conventional\nimbalance threshold",
+            ha="right", va="top", fontsize=8, color=INK3, linespacing=1.3)
+    ax.set_yticks(y)
+    ax.set_yticklabels([_pretty_covariate(c) for c in order["covariate"]])
+    ax.set_xlim(0, 0.108)
+    _hide_left_spine(ax)
+    ax.set_xlabel("Absolute standardized mean difference, email arms vs. control")
+    ax.set_title("Covariate balance")
+    fig.savefig(FIG_DIR / "01_balance_love_plot.png")
     plt.close(fig)
 
 
@@ -344,24 +422,29 @@ def layer3_ate(df: pd.DataFrame) -> dict:
 
 
 def _plot_ate_forest(results: dict) -> None:
-    fig, ax = plt.subplots(figsize=(7, 3.6))
     labels, est, lo, hi = [], [], [], []
     for arm in [MENS, WOMENS]:
         r = results[arm]["visit"]
-        labels.append(f"{arm}\n(visit)")
+        labels.append(ARM_LABEL[arm])
         est.append(r["risk_diff"] * 100)
         lo.append(r["ci_low"] * 100)
         hi.append(r["ci_high"] * 100)
-    y = np.arange(len(labels))
-    ax.errorbar(est, y, xerr=[np.array(est) - np.array(lo), np.array(hi) - np.array(est)],
-                fmt="o", color="#2c7fb8", capsize=4, lw=2)
-    ax.axvline(0, ls="--", color="grey", lw=1)
+    est, lo, hi = map(np.array, (est, lo, hi))
+    y = np.arange(len(labels))[::-1]           # Men's on top, as in the tables
+    fig, ax = plt.subplots(figsize=(6.4, 2.4))
+    ax.axvline(0, color=INK3, lw=0.8)
+    ax.errorbar(est, y, xerr=[est - lo, hi - est], fmt="o", color=BLUE, ecolor=INK2,
+                elinewidth=1.2, capsize=3, ms=6, mec=PAPER, mew=1.2)
+    for yi, e, h in zip(y, est, hi):           # two points: label both
+        ax.annotate(f"{e:+.2f} pp", (h, yi), xytext=(6, 0), textcoords="offset points",
+                    va="center", fontsize=8.5, color=INK2)
     ax.set_yticks(y)
     ax.set_yticklabels(labels)
-    ax.set_xlabel("Visit-rate lift vs. control (percentage points, 95% CI)")
+    ax.set_xlim(-0.5, hi.max() + 1.8)
+    _hide_left_spine(ax)
+    ax.set_xlabel("Lift in visit rate vs. no email (percentage points, 95% CI)")
     ax.set_title("Average treatment effect on website visits")
-    fig.tight_layout()
-    fig.savefig(FIG_DIR / "02_ate_forest.png", dpi=130)
+    fig.savefig(FIG_DIR / "02_ate_forest.png")
     plt.close(fig)
 
 
@@ -472,23 +555,28 @@ def layer5_hte(df: pd.DataFrame) -> dict:
 
 
 def _plot_hte(subgroup_table: dict) -> None:
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharex=True)
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.6), sharex=True, layout="constrained")
     for ax, arm in zip(axes, [MENS, WOMENS]):
-        tbl = subgroup_table[arm].copy()
-        tbl["label"] = tbl["moderator"] + " = " + tbl["level"].astype(str)
-        tbl = tbl.iloc[::-1]
+        tbl = subgroup_table[arm].iloc[::-1]
         y = np.arange(len(tbl))
+        ax.axvline(0, color=INK3, lw=0.8)
         ax.errorbar(tbl["lift_pp"], y,
                     xerr=[tbl["lift_pp"] - tbl["ci_low"], tbl["ci_high"] - tbl["lift_pp"]],
-                    fmt="o", capsize=3, color="#2c7fb8", lw=1.5)
-        ax.axvline(0, ls="--", color="grey", lw=1)
+                    fmt="o", color=BLUE, ecolor=INK2, elinewidth=1.1, capsize=2.5,
+                    ms=5.5, mec=PAPER, mew=1.2)
+        # Direct-label only the purchase-history rows: they are what the text is about.
+        for yi, (mod, lift, hi) in enumerate(zip(tbl["moderator"], tbl["lift_pp"], tbl["ci_high"])):
+            if mod.startswith(("mens", "womens")):
+                ax.annotate(f"{lift:+.1f}", (hi, yi), xytext=(5, 0), textcoords="offset points",
+                            va="center", fontsize=8, color=INK2)
         ax.set_yticks(y)
-        ax.set_yticklabels(tbl["label"], fontsize=8)
-        ax.set_title(f"{arm}")
-        ax.set_xlabel("Visit-rate lift vs. control (pp, 95% CI)")
-    fig.suptitle("Heterogeneous treatment effects by customer segment")
-    fig.tight_layout()
-    fig.savefig(FIG_DIR / "03_hte_forest.png", dpi=130)
+        ax.set_yticklabels([_pretty_segment(m, l) for m, l in zip(tbl["moderator"], tbl["level"])],
+                           fontsize=8.5)
+        _hide_left_spine(ax)
+        ax.set_title(ARM_LABEL[arm])
+        ax.set_xlabel("Lift in visit rate vs. no email (pp, 95% CI)")
+    fig.suptitle("Treatment effect by customer segment", x=0.0, ha="left", fontsize=11)
+    fig.savefig(FIG_DIR / "03_hte_forest.png")
     plt.close(fig)
 
 
@@ -595,17 +683,21 @@ def layer6_uplift(df: pd.DataFrame, arm: str) -> dict:
 
 
 def _plot_qini(arm, frac, qini_t, rand, qini_s) -> None:
-    fig, ax = plt.subplots(figsize=(6.5, 5))
-    ax.plot(frac, qini_t, color="#2c7fb8", lw=2, label="T-learner")
-    ax.plot(frac, qini_s, color="#41ab5d", lw=1.5, ls="-.", label="S-learner")
-    ax.plot(frac, rand, color="grey", lw=1.2, ls="--", label="Random targeting")
-    ax.set_xlabel("Fraction of customers targeted")
-    ax.set_ylabel("Cumulative incremental visits (Qini)")
-    ax.set_title(f"Qini curve - {arm}")
-    ax.legend()
-    fig.tight_layout()
+    fig, ax = plt.subplots(figsize=(6.4, 4.4))
+    ax.grid(axis="y")
+    ax.plot(frac, rand, color=INK3, lw=0.9, ls=DASH, label="Random targeting")
+    ax.plot(frac, qini_t, color=BLUE, label="T-learner")
+    ax.plot(frac, qini_s, color=RUST, label="S-learner")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(bottom=0)
+    ax.xaxis.set_major_formatter(PercentFormatter(1.0, decimals=0))
+    ax.set_xlabel("Share of customers targeted, highest predicted uplift first")
+    ax.set_ylabel("Cumulative incremental visits")
+    ax.set_title(f"Qini curves, {ARM_LABEL[arm]}")
+    handles, labels = ax.get_legend_handles_labels()   # series first, reference last
+    ax.legend(handles[1:] + handles[:1], labels[1:] + labels[:1], loc="upper left")
     safe = arm.split()[0].lower()
-    fig.savefig(FIG_DIR / f"04_qini_{safe}.png", dpi=130)
+    fig.savefig(FIG_DIR / f"04_qini_{safe}.png")
     plt.close(fig)
 
 
@@ -680,12 +772,17 @@ def layer7_policy(arm: str, art: dict) -> dict:
         "nv_blanket": nv_all, "nv_targeted": nv_pi,
         "contacts_saved_per1k": (1 - frac) * 1000,
     }
-    _plot_policy_curve(arm, yte, tte, score, p)
+    _plot_policy_curve(arm, yte, tte, score, p, rule_frac=frac)
     return REPORT["policy"][arm]
 
 
-def _plot_policy_curve(arm, yte, tte, score, p) -> None:
-    """Net value per 1,000 as targeting extends from highest to lowest uplift."""
+def _plot_policy_curve(arm, yte, tte, score, p, rule_frac=None) -> None:
+    """Net value per 1,000 as targeting extends from highest to lowest uplift.
+
+    rule_frac, if given, is the share the cost-sensitive rule actually contacts;
+    it is drawn as a reference line so the chart shows the gap between the rule
+    and the curve's empirical peak instead of leaving it to the caption.
+    """
     order = np.argsort(-score, kind="mergesort")
     y, t = yte[order], tte[order]
     v_none = y[t == 0].mean()  # IPW value of contacting no one = control mean
@@ -698,19 +795,39 @@ def _plot_policy_curve(arm, yte, tte, score, p) -> None:
         w = np.where(pol == 1, (t == 1) / p, (t == 0) / (1 - p))
         v = (w * y).mean()
         nv.append(((v - v_none) * VALUE_PER_VISIT - f * COST_PER_EMAIL) * 1000)
-    fig, ax = plt.subplots(figsize=(6.5, 5))
-    ax.plot(fracs * 100, nv, color="#2c7fb8", lw=2)
+    nv = np.array(nv)
     best = int(np.argmax(nv))
-    ax.plot(fracs[best] * 100, nv[best], "o", color="#c0392b",
-            label=f"optimum @ {fracs[best]*100:.0f}% contacted")
-    ax.axhline(0, ls="--", color="grey", lw=1)
-    ax.set_xlabel("% of customers contacted (highest predicted uplift first)")
-    ax.set_ylabel("Net value / 1,000 vs. contacting no one ($)")
-    ax.set_title(f"Targeting profit curve - {arm}")
-    ax.legend()
-    fig.tight_layout()
+    fig, ax = plt.subplots(figsize=(6.4, 4.4))
+    ax.grid(axis="y")
+    ax.axhline(0, color=INK3, lw=0.8)
+    ax.plot(fracs * 100, nv, color=BLUE)
+    # One series, so no legend: the peak is annotated in place. Labels get a
+    # paper-coloured knockout so the reference line can never run through text.
+    knockout = dict(boxstyle="square,pad=0.18", fc=PAPER, ec="none")
+    ax.plot(fracs[best] * 100, nv[best], "o", color=INK, ms=6.5, mec=PAPER, mew=1.4)
+    # The peak is the curve's maximum, so the open space is below it on the side
+    # the curve rose from. Set the label there and join it to the point with a
+    # thin leader rather than crowding the point itself.
+    px, py = fracs[best] * 100, nv[best]
+    yspan = nv.max() - min(nv.min(), 0.0)
+    to_left = px > 35
+    ax.annotate(f"peak: {px:.0f}% contacted, ${py:.2f}", (px, py),
+                xytext=(px - 22 if to_left else px + 22, py - 0.2 * yspan),
+                textcoords="data", ha="right" if to_left else "left", va="center",
+                fontsize=8.5, color=INK2, bbox=knockout,
+                arrowprops=dict(arrowstyle="-", color=INK3, lw=0.7, shrinkA=2, shrinkB=5))
+    if rule_frac is not None:
+        ax.axvline(rule_frac * 100, color=INK3, lw=0.9, ls=DASH)
+        ax.text(rule_frac * 100 - 1.2, nv.min() if nv.min() < 0 else 0.6,
+                f"break-even rule\ncontacts {rule_frac*100:.0f}%",
+                ha="right", va="bottom", fontsize=8, color=INK3, linespacing=1.3,
+                bbox=knockout)
+    ax.set_xlim(0, 102)
+    ax.set_xlabel("Share of customers contacted, highest predicted uplift first (%)")
+    ax.set_ylabel("Net value per 1,000 vs. contacting no one ($)")
+    ax.set_title(f"Value of targeting, {ARM_LABEL[arm]}")
     safe = arm.split()[0].lower()
-    fig.savefig(FIG_DIR / f"05_policy_{safe}.png", dpi=130)
+    fig.savefig(FIG_DIR / f"05_policy_{safe}.png")
     plt.close(fig)
 
 
@@ -888,6 +1005,7 @@ def write_results_md() -> None:
 # Main                                                                        #
 # --------------------------------------------------------------------------- #
 def main() -> None:
+    _setup_style()
     print(textwrap.dedent("""
         ##############################################################
         #  WHEN AVERAGE EFFECTS LIE                                  #

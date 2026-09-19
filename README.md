@@ -30,10 +30,10 @@ So the two campaigns need opposite playbooks:
 | Campaign | Avg. visit lift | Heterogeneity | Recommended policy |
 |---|---|---|---|
 | **Men's email** | **+7.66pp** `[+7.00, +8.32]` | low (interactions n.s. after FDR) | **Contact broadly** — targeting adds nothing |
-| **Women's email** | **+4.52pp** `[+3.89, +5.16]` | **high** (T×affinity p < 1e-4) | **Target the ~59%** with real affinity — **more than doubles** net value while sending **409 fewer contacts per 1,000** |
+| **Women's email** | **+4.52pp** `[+3.89, +5.16]` | **high** (T×affinity p < 1e-4) | **Target the ~59%** with real affinity — **doubles** net value while sending **415 fewer contacts per 1,000** |
 
 Under illustrative economics ($2 / incremental visit, $0.06 / contact ⇒ 3pp
-break-even), the uplift-targeted Women's policy returns **\$36.17 vs \$16.90 per
+break-even), the uplift-targeted Women's policy returns **\$33.85 vs \$16.90 per
 1,000** for blanket emailing. The qualitative call — *broad for Men's, selective
 for Women's* — holds across a wide range of those prices.
 
@@ -83,10 +83,13 @@ it. Full run is well under a minute. Open `RESULTS.md` for the headline numbers
 and `figures/` for the charts.
 
 `requirements.txt` is pinned to the exact versions the committed `RESULTS.md` and
-figures were produced with. Layers 1–5 are deterministic under any compatible
-stack, but the gradient-boosted uplift models in Layer 6 can move a Qini point
-across scikit-learn releases — so install the pins if you want the committed
-numbers to reproduce digit-for-digit.
+figures were produced with, and needs Python 3.12 or newer. Layers 1–5 reproduce
+to the last digit under any compatible stack. Layer 6's gradient-boosted uplift
+models are the one place the numbers have been seen to move between
+environments: an earlier run of this script recorded Qini 6.5 / 61.8 and a
+targeted Women's value of \$36.17, which neither the pinned environment nor an
+unpinned one reproduces today (both give 2.6 / 60.4 and \$33.85, identically,
+at any thread count). The committed numbers are the reproducible ones.
 
 ### The write-up site
 `index.html` is a single self-contained page: no build step, no JavaScript, no
@@ -103,8 +106,8 @@ Open it locally by double-clicking it, or read the
   statistical power. `conversion` (~0.9%) and `spend` are reported too, but the
   decision rests on the well-powered metric.
 - **T-learner *and* S-learner.** Reporting both, and selecting the better ranker
-  by Qini, is honest about model risk. (Men's: T-learner, Qini 6.5 — little to
-  rank. Women's: S-learner, Qini 61.8 — lots to rank.) The huge gap in Qini
+  by Qini, is honest about model risk. (Men's: T-learner, Qini 2.6 — little to
+  rank. Women's: S-learner, Qini 60.4 — lots to rank.) The huge gap in Qini
   *is* the heterogeneity story in one number.
 - **IPW policy value.** Because treatment was randomized, the propensity is a
   known constant, so the inverse-propensity policy-value estimator is unbiased —

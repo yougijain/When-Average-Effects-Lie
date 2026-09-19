@@ -24,8 +24,8 @@ Regression adjustment (Lin 2013) left the point estimates essentially unchanged 
 ## 4. Uplift modelling & cost-sensitive targeting
 _Illustrative economics: a visit is worth $2.00 and a contact costs $0.06 (break-even uplift 3.0pp). Net value is per 1,000 customers vs. contacting no one. The qualitative call — broad for Men's, selective for Women's — is robust to the exact prices._
 
-- **Mens E-Mail** (best ranker T-learner, Qini 6.5): net value blanket $+80.76 vs targeted $+75.63 / 1,000 → **contact broadly** — targeting adds nothing.
-- **Womens E-Mail** (best ranker S-learner, Qini 61.8): net value blanket $+16.90 vs targeted $+36.17 / 1,000 → **target the top 59%** (saves 409 contacts/1,000).
+- **Mens E-Mail** (best ranker T-learner, Qini 2.6): net value blanket $+80.76 vs targeted $+78.29 / 1,000 → **contact broadly** — targeting adds nothing.
+- **Womens E-Mail** (best ranker S-learner, Qini 60.4): net value blanket $+16.90 vs targeted $+33.85 / 1,000 → **target the top 59%** (saves 415 contacts/1,000).
 
 ## 5. Robustness
 - Randomization inference (B=2000) on the Women's-email visit effect: observed +4.52pp, permutation p = **0.0000**.
