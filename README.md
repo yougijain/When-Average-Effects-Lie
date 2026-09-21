@@ -86,6 +86,20 @@ columns, 64,000 rows, and the three arm sizes are all checked first. Full run is
 well under a minute. Open `RESULTS.md` for the headline numbers
 and `figures/` for the charts.
 
+### Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest tests/
+```
+
+The tests run on synthetic data and never touch the network. They cover the
+machinery whose failures wouldn't show up as a crash: the Qini coefficient
+(does it reward the true ranking over a null of random ones, is it really
+invariant to monotone rescaling — the property that makes the calibration check
+necessary — and how does it break ties), the download validator, and learner
+selection.
+
 `requirements.txt` is pinned to the exact versions the committed `RESULTS.md`
 and figures were produced with, and needs Python 3.12 or newer. Under those pins
 the whole pipeline reproduces the committed outputs byte for byte, figures

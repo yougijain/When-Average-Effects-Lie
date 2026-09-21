@@ -1,0 +1,26 @@
+# Unit tests only: they run on synthetic data and never touch the network, so
+# this job does not depend on the dataset host being reachable. The full
+# pipeline is not run here - it is reproduced locally against the pins in
+# requirements.txt, and its outputs are committed.
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - run: pytest tests/ -q

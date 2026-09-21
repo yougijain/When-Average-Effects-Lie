@@ -1,0 +1,4 @@
+# Test-only dependencies. The analysis itself needs nothing beyond
+# requirements.txt; these are for `pytest tests/`.
+-r requirements.txt
+pytest==9.0.1
