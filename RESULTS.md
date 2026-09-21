@@ -13,8 +13,8 @@ _Every number the README and the write-up quote, in one place, so there is a sin
 | ...among prior women's-merch buyers | **+7.31pp** |
 | ...among everyone else | **+1.11pp** |
 | Qini, Women's email (reporting set, S-learner) | **60.4** |
-| Net value, uplift-targeted | **$+33.85** per 1,000 |
-| Net value, blanket | **$+16.90** per 1,000 |
+| Net value, uplift-targeted | **$33.85** per 1,000 |
+| Net value, blanket | **$16.90** per 1,000 |
 | Contacts saved by targeting | **415** per 1,000 |
 
 ## 1. Experiment integrity

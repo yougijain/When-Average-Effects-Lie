@@ -1179,9 +1179,11 @@ def write_results_md() -> None:
                  f"**{seg_lift(WOMENS, 'womens', 0):+.2f}pp** |")
     lines.append(f"| Qini, Women's email (reporting set, {wq['selected']}) | "
                  f"**{wq['qini_reported']:.1f}** |")
+    # No sign on these two: they are the figures quoted verbatim elsewhere, and
+    # a leading "+" on a dollar amount reads as a typo rather than as a sign.
     lines.append(f"| Net value, uplift-targeted | "
-                 f"**${wp['nv_targeted']:+.2f}** per 1,000 |")
-    lines.append(f"| Net value, blanket | **${wp['nv_blanket']:+.2f}** per 1,000 |")
+                 f"**${wp['nv_targeted']:.2f}** per 1,000 |")
+    lines.append(f"| Net value, blanket | **${wp['nv_blanket']:.2f}** per 1,000 |")
     lines.append(f"| Contacts saved by targeting | "
                  f"**{wp['contacts_saved_per1k']:.0f}** per 1,000 |")
     lines.append("")
