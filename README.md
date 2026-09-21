@@ -2,7 +2,7 @@
 ### Turning a routine email A/B test into a targeting strategy with causal + uplift modelling
 
 **[→ Read the interactive write-up](https://yougijain.github.io/When-Average-Effects-Lie/)**
- · [Generated results](RESULTS.md) · [The analysis script](hillstrom_ab_analysis.py)
+ · [Generated results](RESULTS.md) · [The analysis script](hillstrom_ab_analysis.py) · [Changelog](CHANGELOG.md)
 
 **The business question:** A retailer runs two promotional emails — one featuring
 men's merchandise, one featuring women's. Both "work" on average. So which
@@ -82,14 +82,14 @@ The script auto-downloads the dataset (~4 MB) to `data/` on first run and caches
 it. Full run is well under a minute. Open `RESULTS.md` for the headline numbers
 and `figures/` for the charts.
 
-`requirements.txt` is pinned to the exact versions the committed `RESULTS.md` and
-figures were produced with, and needs Python 3.12 or newer. Layers 1–5 reproduce
-to the last digit under any compatible stack. Layer 6's gradient-boosted uplift
-models are the one place the numbers have been seen to move between
-environments: an earlier run of this script recorded Qini 6.5 / 61.8 and a
-targeted Women's value of \$36.17, which neither the pinned environment nor an
-unpinned one reproduces today (both give 2.6 / 60.4 and \$33.85, identically,
-at any thread count). The committed numbers are the reproducible ones.
+`requirements.txt` is pinned to the exact versions the committed `RESULTS.md`
+and figures were produced with, and needs Python 3.12 or newer. Under those pins
+the whole pipeline reproduces the committed outputs byte for byte, figures
+included. Layers 1–5 also reproduce to the last digit under any compatible
+stack; Layer 6's gradient-boosted models are the one place numbers have been
+seen to move between environments, which is what the pins are for. An earlier
+run whose uplift numbers no longer reproduce is written up in
+[`CHANGELOG.md`](CHANGELOG.md).
 
 ### The write-up site
 `index.html` is a single self-contained page: no build step, no JavaScript, no
