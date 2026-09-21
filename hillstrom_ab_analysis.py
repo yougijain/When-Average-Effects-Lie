@@ -34,6 +34,7 @@ Run:
 
 from __future__ import annotations
 
+import gzip
 import sys
 import textwrap
 from pathlib import Path
@@ -74,18 +75,29 @@ DATA_PATH = DATA_DIR / "hillstrom.csv"
 RESULTS_PATH = ROOT / "RESULTS.md"
 
 # Tried in order. The canonical host only speaks plain HTTP, which some
-# corporate proxies refuse outright, so try TLS first and fall back.
+# corporate proxies refuse outright, so try TLS first and fall back. The third
+# entry is the gzipped copy scikit-uplift distributes, for networks that refuse
+# minethatdata.com altogether; it is the same 64,000 rows with the same arm
+# sizes. Nothing is trusted on the strength of its URL - every download is
+# checked against EXPECTED_ROWS and EXPECTED_ARMS before it is cached, so a
+# mirror that reindexed or resampled the file fails loudly instead of flowing
+# into the numbers below.
 _DATA_FILE = (
     "Kevin_Hillstrom_MineThatData_E-MailAnalytics_DataMiningChallenge_2008.03.20.csv"
 )
 DATA_URLS = (
     f"https://www.minethatdata.com/{_DATA_FILE}",
     f"http://www.minethatdata.com/{_DATA_FILE}",
+    "https://hillstorm1.s3.us-east-2.amazonaws.com/hillstorm_no_indices.csv.gz",
 )
 
 CONTROL = "No E-Mail"
 MENS = "Mens E-Mail"
 WOMENS = "Womens E-Mail"
+
+# The published experiment, used to authenticate a downloaded file.
+EXPECTED_ROWS = 64_000
+EXPECTED_ARMS = {MENS: 21_307, WOMENS: 21_387, CONTROL: 21_306}
 
 # Pre-treatment covariates used for balance, adjustment and uplift features.
 NUM_COLS = ["recency", "history", "mens", "womens", "newbie"]
@@ -238,23 +250,45 @@ def standardized_mean_diff(x_t, x_c):
 # --------------------------------------------------------------------------- #
 # Layer 1 - Load & validate                                                   #
 # --------------------------------------------------------------------------- #
+def _validate_dataset(path: Path) -> None:
+    """Raise unless `path` really is the Hillstrom experiment.
+
+    A download can succeed and still be the wrong bytes: an HTML error page, or
+    a mirror that reindexed, resampled or re-shuffled the file. The columns
+    catch the first. The row count and the three arm sizes catch the second,
+    which is the failure that would otherwise pass silently into every estimate
+    downstream - a resampled file still parses, still runs, and quietly reports
+    a different experiment.
+    """
+    df = pd.read_csv(path)
+    required = [*COVARIATES, "segment", "visit", "conversion", "spend"]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(f"not the expected CSV (missing columns: {missing})")
+    if len(df) != EXPECTED_ROWS:
+        raise ValueError(f"expected {EXPECTED_ROWS:,} rows, found {len(df):,}")
+    arms = {str(k): int(v) for k, v in df["segment"].value_counts().items()}
+    if arms != EXPECTED_ARMS:
+        raise ValueError(f"expected arm sizes {EXPECTED_ARMS}, found {arms}")
+
+
 def _download_dataset() -> None:  # pragma: no cover - network dependent
     """Fetch the dataset to a temp file, validate it, then move it into place.
 
     urlretrieve saves whatever the server returns, including an HTML error
     page. Writing straight to DATA_PATH would poison the cache: the file then
     exists, every later run skips the download, and the failure surfaces as a
-    cryptic parse error instead of a network one. So: download aside, check the
-    header, and only then commit the file.
+    cryptic parse error instead of a network one. So: download aside, check it
+    is the right experiment, and only then commit the file.
     """
     tmp = DATA_PATH.with_suffix(".part")
     failures = []
     for url in DATA_URLS:
         try:
             urlretrieve(url, tmp)
-            first = tmp.read_text(encoding="utf-8", errors="replace").split("\n", 1)[0]
-            if "recency" not in first.lower():
-                raise ValueError(f"not the expected CSV (first line: {first[:80]!r})")
+            if url.endswith(".gz"):
+                tmp.write_bytes(gzip.decompress(tmp.read_bytes()))
+            _validate_dataset(tmp)
             tmp.replace(DATA_PATH)
             print(f"  downloaded from {url}")
             return
