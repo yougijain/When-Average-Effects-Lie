@@ -63,7 +63,13 @@ _Illustrative economics: a visit is worth $2.00 and a contact costs $0.06 (break
 - **Mens E-Mail** (ranker T-learner, Qini 2.6): net value blanket $+80.76 vs targeted $+78.29 / 1,000 → **contact broadly** — targeting adds nothing.
 - **Womens E-Mail** (ranker S-learner, Qini 60.4): net value blanket $+16.90 vs targeted $+33.85 / 1,000 → **target the top 59%** (saves 415 contacts/1,000).
 
-## 6. Robustness
+## 6. Calibration of predicted uplift
+_Qini is invariant to any monotone transform of the score, so it certifies the ranking and says nothing about the magnitudes. Section 5 spends the magnitudes: a customer is contacted when predicted uplift clears 3.0pp. Deciles of predicted uplift on the reporting set, predicted against observed:_
+
+- **Mens E-Mail**: calibration slope **0.07** (1.00 = predictions on scale), intercept +6.35pp, Spearman rho **+0.08** across deciles, mean absolute error **3.61pp**, and 60% of deciles have a 95% CI covering their own prediction (`figures/06_calibration_mens.png`).
+- **Womens E-Mail**: calibration slope **0.74** (1.00 = predictions on scale), intercept +0.50pp, Spearman rho **+0.68** across deciles, mean absolute error **2.15pp**, and 90% of deciles have a 95% CI covering their own prediction (`figures/06_calibration_womens.png`).
+
+## 7. Robustness
 - Randomization inference (B=2000) on the Women's-email visit effect: observed +4.52pp, permutation p = **0.0000**.
 - Achieved power for that comparison: **1.00**.
 - All subgroup interactions reported with Benjamini-Hochberg FDR control (see console output).
@@ -76,3 +82,5 @@ _Illustrative economics: a visit is worth $2.00 and a contact costs $0.06 (break
 - `figures/04_qini_womens.png`
 - `figures/05_policy_mens.png`
 - `figures/05_policy_womens.png`
+- `figures/06_calibration_mens.png`
+- `figures/06_calibration_womens.png`

@@ -112,6 +112,9 @@ PRIMARY_OUTCOME = "visit"  # highest base-rate => most statistical power
 REPORT_FRAC = 0.35
 N_SELECT_FOLDS = 5
 
+# Deciles of predicted uplift for the calibration check in Layer 6b.
+N_CALIB_BINS = 10
+
 # Illustrative economics for the policy section (clearly-stated ASSUMPTIONS,
 # not claims about Hillstrom's real margins). These two numbers only set the
 # break-even uplift = COST/VALUE; the qualitative targeting call is robust to a
@@ -131,6 +134,7 @@ COST_PER_EMAIL = 0.06    # $ fully-loaded cost of one contact (send + list fatig
 PAPER, INK, INK2, INK3, RULE = "#fdfdfb", "#1b1b1a", "#4a4a46", "#6f6f68", "#d8d6cf"
 BLUE, RUST = "#1a5e94", "#b4561f"
 DASH = (0, (4, 3))                       # for threshold / reference lines only
+DOT = (0, (1, 2.5))                      # second reference style, where DASH is taken
 FONT_FILE = ROOT / "fonts" / "SourceSerif4-normal.ttf"
 ARM_LABEL = {MENS: "Men's email", WOMENS: "Women's email"}
 
@@ -828,6 +832,119 @@ def _plot_qini(arm, frac, qini_t, rand, qini_s, chosen) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Layer 6b - Calibration of predicted uplift                                   #
+# --------------------------------------------------------------------------- #
+def layer6b_calibration(arm: str, art: dict) -> dict:
+    """Do the predicted uplifts mean anything, or are they just a ranking?
+
+    A Qini curve answers only the ranking question: it is invariant to any
+    monotone transform of the score, so a model that ranks perfectly and
+    predicts every uplift as 0.3pp scores exactly as well as one that predicts
+    the truth. Layer 7 does not spend a ranking, though - it compares each
+    predicted uplift to a break-even in percentage points and contacts the
+    customer if it clears. That decision is only as good as the magnitudes, so
+    they get checked: bucket the reporting set into deciles of predicted
+    uplift, and put predicted next to observed in each.
+    """
+    banner(f"LAYER 6b -  Calibration of predicted uplift  ({arm} vs {CONTROL})")
+    yte, tte, score = art["yte"], art["tte"], art["score_best"]
+
+    # Bin on ranks rather than on the score itself: gradient-boosted scores tie
+    # on identical covariate patterns, and ties would otherwise collapse the
+    # deciles into unequal buckets.
+    bins = pd.qcut(stats.rankdata(score, method="ordinal"), N_CALIB_BINS, labels=False)
+    rows = []
+    for b in range(N_CALIB_BINS):
+        m = bins == b
+        y1, y0 = yte[m & (tte == 1)], yte[m & (tte == 0)]
+        if len(y1) < 2 or len(y0) < 2:
+            continue
+        p1, p0 = y1.mean(), y0.mean()
+        rows.append({
+            "decile": b + 1,
+            "n": int(m.sum()),
+            "predicted": float(score[m].mean()),
+            "observed": float(p1 - p0),
+            "se": float(np.sqrt(p1 * (1 - p1) / len(y1) + p0 * (1 - p0) / len(y0))),
+        })
+    tab = pd.DataFrame(rows)
+    pred, obs, se = tab["predicted"].values, tab["observed"].values, tab["se"].values
+
+    # Weighted by precision: the extreme deciles are the noisiest and should not
+    # drive the line. Perfect calibration is slope 1, intercept 0.
+    slope, intercept = np.polyfit(pred, obs, 1, w=1.0 / se)
+    rho = stats.spearmanr(pred, obs).statistic
+    mace = np.mean(np.abs(obs - pred))
+    covered = np.mean(np.abs(obs - pred) <= 1.96 * se)
+
+    print(f"  decile   n      predicted   observed        95% CI")
+    for r in tab.itertuples():
+        lo, hi = (r.observed - 1.96 * r.se) * 100, (r.observed + 1.96 * r.se) * 100
+        print(f"    {r.decile:2d}   {r.n:5,}    {r.predicted * 100:+7.2f}pp  "
+              f"{r.observed * 100:+7.2f}pp   [{lo:+6.2f}, {hi:+6.2f}]")
+    print(f"  calibration slope   : {slope:.2f}  (1.00 = predictions are on scale; "
+          f"< 1 = over-confident spread)")
+    print(f"  intercept           : {intercept * 100:+.2f}pp")
+    print(f"  Spearman rho        : {rho:+.2f}  (ranking across deciles)")
+    print(f"  mean |pred - obs|   : {mace * 100:.2f}pp")
+    print(f"  deciles whose 95% CI covers their prediction: {covered:.0%}")
+
+    REPORT.setdefault("calibration", {})[arm] = {
+        "slope": float(slope), "intercept": float(intercept),
+        "spearman": float(rho), "mace": float(mace), "covered": float(covered),
+        "table": tab,
+    }
+    _plot_calibration(arm, tab, slope, intercept)
+    return REPORT["calibration"][arm]
+
+
+def _plot_calibration(arm, tab, slope, intercept) -> None:
+    pred = tab["predicted"].values * 100
+    obs = tab["observed"].values * 100
+    err = tab["se"].values * 100 * 1.96
+    fig, ax = plt.subplots(figsize=(6.4, 4.4))
+    ax.grid(axis="y")
+    lo = min(pred.min(), (obs - err).min(), 0.0)
+    hi = max(pred.max(), (obs + err).max())
+    pad = 0.08 * (hi - lo)
+    span = np.array([lo - pad, hi + pad])
+    # Identity first, so the data sits on top of it.
+    ax.plot(span, span, color=INK3, lw=0.9, ls=DASH, label="Perfect calibration")
+    ax.plot(span, intercept * 100 + slope * span, color=RUST, lw=1.1,
+            label=f"Fitted, slope {slope:.2f}")
+    ax.errorbar(pred, obs, yerr=err, fmt="o", color=BLUE, ms=5, lw=0.9,
+                capsize=2.5, mec=PAPER, mew=0.8, label="Decile of predicted uplift")
+    # Where Layer 7 cuts: deciles to its right are the ones the policy contacts,
+    # so that is the region whose magnitudes have to be right for the policy to
+    # be right, which is the whole reason this chart exists. It goes in the
+    # legend rather than on the line - an in-place label here lands on a decile
+    # or its interval whichever way it is turned.
+    breakeven = COST_PER_EMAIL / VALUE_PER_VISIT * 100
+    if span[0] < breakeven < span[1]:
+        ax.axvline(breakeven, color=INK3, lw=0.8, ls=DOT,
+                   label=f"Policy cuts here ({breakeven:.1f}pp)")
+    ax.set_xlim(*span)
+    ax.set_ylim(*span)
+    ax.set_xlabel("Mean predicted uplift in the decile (pp)")
+    ax.set_ylabel("Observed uplift in the decile (pp)")
+    ax.set_title(f"Predicted vs. observed uplift by decile, {ARM_LABEL[arm]}")
+    # Data first, references after, ordered by label rather than by index:
+    # matplotlib returns lines before error-bar containers whatever order they
+    # were drawn in, so index arithmetic here silently reorders itself.
+    order = ["Decile of predicted uplift", "Perfect calibration"]
+    handles, labels = ax.get_legend_handles_labels()
+    rank = {lab: i for i, lab in enumerate(order)}
+    pairs = sorted(zip(labels, handles), key=lambda kv: rank.get(kv[0], len(order)))
+    # Paper-coloured knockout: the break-even rule is a full-height vertical and
+    # would otherwise run straight through the legend's own text.
+    ax.legend([h for _, h in pairs], [l for l, _ in pairs], loc="upper left",
+              frameon=True, framealpha=1.0, facecolor=PAPER, edgecolor="none")
+    safe = arm.split()[0].lower()
+    fig.savefig(FIG_DIR / f"06_calibration_{safe}.png")
+    plt.close(fig)
+
+
+# --------------------------------------------------------------------------- #
 # Layer 7 - Targeting policy value (IPW)                                       #
 # --------------------------------------------------------------------------- #
 def layer7_policy(arm: str, art: dict) -> dict:
@@ -1175,7 +1292,27 @@ def write_results_md() -> None:
             f"→ {verdict}.")
     lines.append("")
 
-    lines.append("## 6. Robustness")
+    lines.append("## 6. Calibration of predicted uplift")
+    lines.append(
+        f"_Qini is invariant to any monotone transform of the score, so it "
+        f"certifies the ranking and says nothing about the magnitudes. Section 5 "
+        f"spends the magnitudes: a customer is contacted when predicted uplift "
+        f"clears {COST_PER_EMAIL / VALUE_PER_VISIT * 100:.1f}pp. Deciles of "
+        f"predicted uplift on the reporting set, predicted against observed:_\n")
+    for arm in [MENS, WOMENS]:
+        cal = r["calibration"][arm]
+        safe = arm.split()[0].lower()
+        lines.append(
+            f"- **{arm}**: calibration slope **{cal['slope']:.2f}** "
+            f"(1.00 = predictions on scale), intercept "
+            f"{cal['intercept'] * 100:+.2f}pp, Spearman rho "
+            f"**{cal['spearman']:+.2f}** across deciles, mean absolute error "
+            f"**{cal['mace'] * 100:.2f}pp**, and {cal['covered']:.0%} of deciles "
+            f"have a 95% CI covering their own prediction "
+            f"(`figures/06_calibration_{safe}.png`).")
+    lines.append("")
+
+    lines.append("## 7. Robustness")
     rb = r["robustness"]
     lines.append(
         f"- Randomization inference (B=2000) on the Women's-email visit effect: "
@@ -1210,6 +1347,7 @@ def main() -> None:
     hte = layer5_hte(df)
     for arm in [MENS, WOMENS]:
         art = layer6_uplift(df, arm)
+        layer6b_calibration(arm, art)
         layer7_policy(arm, art)
     layer8_robustness(df, hte)
     write_results_md()
