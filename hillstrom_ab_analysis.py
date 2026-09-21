@@ -34,6 +34,7 @@ Run:
 
 from __future__ import annotations
 
+import gzip
 import sys
 import textwrap
 from pathlib import Path
@@ -58,7 +59,7 @@ from scipy import stats
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.ensemble import HistGradientBoostingClassifier
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedKFold, train_test_split
 
 
 # --------------------------------------------------------------------------- #
@@ -74,18 +75,29 @@ DATA_PATH = DATA_DIR / "hillstrom.csv"
 RESULTS_PATH = ROOT / "RESULTS.md"
 
 # Tried in order. The canonical host only speaks plain HTTP, which some
-# corporate proxies refuse outright, so try TLS first and fall back.
+# corporate proxies refuse outright, so try TLS first and fall back. The third
+# entry is the gzipped copy scikit-uplift distributes, for networks that refuse
+# minethatdata.com altogether; it is the same 64,000 rows with the same arm
+# sizes. Nothing is trusted on the strength of its URL - every download is
+# checked against EXPECTED_ROWS and EXPECTED_ARMS before it is cached, so a
+# mirror that reindexed or resampled the file fails loudly instead of flowing
+# into the numbers below.
 _DATA_FILE = (
     "Kevin_Hillstrom_MineThatData_E-MailAnalytics_DataMiningChallenge_2008.03.20.csv"
 )
 DATA_URLS = (
     f"https://www.minethatdata.com/{_DATA_FILE}",
     f"http://www.minethatdata.com/{_DATA_FILE}",
+    "https://hillstorm1.s3.us-east-2.amazonaws.com/hillstorm_no_indices.csv.gz",
 )
 
 CONTROL = "No E-Mail"
 MENS = "Mens E-Mail"
 WOMENS = "Womens E-Mail"
+
+# The published experiment, used to authenticate a downloaded file.
+EXPECTED_ROWS = 64_000
+EXPECTED_ARMS = {MENS: 21_307, WOMENS: 21_387, CONTROL: 21_306}
 
 # Pre-treatment covariates used for balance, adjustment and uplift features.
 NUM_COLS = ["recency", "history", "mens", "womens", "newbie"]
@@ -93,6 +105,15 @@ CAT_COLS = ["history_segment", "zip_code", "channel"]
 COVARIATES = NUM_COLS + CAT_COLS
 
 PRIMARY_OUTCOME = "visit"  # highest base-rate => most statistical power
+
+# Share of each two-arm subset held out for reporting, and the number of folds
+# used to choose between the learners on what is left. Selection and reporting
+# never share a row: see _select_learner.
+REPORT_FRAC = 0.35
+N_SELECT_FOLDS = 5
+
+# Deciles of predicted uplift for the calibration check in Layer 6b.
+N_CALIB_BINS = 10
 
 # Illustrative economics for the policy section (clearly-stated ASSUMPTIONS,
 # not claims about Hillstrom's real margins). These two numbers only set the
@@ -113,6 +134,7 @@ COST_PER_EMAIL = 0.06    # $ fully-loaded cost of one contact (send + list fatig
 PAPER, INK, INK2, INK3, RULE = "#fdfdfb", "#1b1b1a", "#4a4a46", "#6f6f68", "#d8d6cf"
 BLUE, RUST = "#1a5e94", "#b4561f"
 DASH = (0, (4, 3))                       # for threshold / reference lines only
+DOT = (0, (1, 2.5))                      # second reference style, where DASH is taken
 FONT_FILE = ROOT / "fonts" / "SourceSerif4-normal.ttf"
 ARM_LABEL = {MENS: "Men's email", WOMENS: "Women's email"}
 
@@ -238,23 +260,45 @@ def standardized_mean_diff(x_t, x_c):
 # --------------------------------------------------------------------------- #
 # Layer 1 - Load & validate                                                   #
 # --------------------------------------------------------------------------- #
+def _validate_dataset(path: Path) -> None:
+    """Raise unless `path` really is the Hillstrom experiment.
+
+    A download can succeed and still be the wrong bytes: an HTML error page, or
+    a mirror that reindexed, resampled or re-shuffled the file. The columns
+    catch the first. The row count and the three arm sizes catch the second,
+    which is the failure that would otherwise pass silently into every estimate
+    downstream - a resampled file still parses, still runs, and quietly reports
+    a different experiment.
+    """
+    df = pd.read_csv(path)
+    required = [*COVARIATES, "segment", "visit", "conversion", "spend"]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(f"not the expected CSV (missing columns: {missing})")
+    if len(df) != EXPECTED_ROWS:
+        raise ValueError(f"expected {EXPECTED_ROWS:,} rows, found {len(df):,}")
+    arms = {str(k): int(v) for k, v in df["segment"].value_counts().items()}
+    if arms != EXPECTED_ARMS:
+        raise ValueError(f"expected arm sizes {EXPECTED_ARMS}, found {arms}")
+
+
 def _download_dataset() -> None:  # pragma: no cover - network dependent
     """Fetch the dataset to a temp file, validate it, then move it into place.
 
     urlretrieve saves whatever the server returns, including an HTML error
     page. Writing straight to DATA_PATH would poison the cache: the file then
     exists, every later run skips the download, and the failure surfaces as a
-    cryptic parse error instead of a network one. So: download aside, check the
-    header, and only then commit the file.
+    cryptic parse error instead of a network one. So: download aside, check it
+    is the right experiment, and only then commit the file.
     """
     tmp = DATA_PATH.with_suffix(".part")
     failures = []
     for url in DATA_URLS:
         try:
             urlretrieve(url, tmp)
-            first = tmp.read_text(encoding="utf-8", errors="replace").split("\n", 1)[0]
-            if "recency" not in first.lower():
-                raise ValueError(f"not the expected CSV (first line: {first[:80]!r})")
+            if url.endswith(".gz"):
+                tmp.write_bytes(gzip.decompress(tmp.read_bytes()))
+            _validate_dataset(tmp)
             tmp.replace(DATA_PATH)
             print(f"  downloaded from {url}")
             return
@@ -597,6 +641,11 @@ def qini_curve(y, treat, score):
 
     Returns fraction targeted, qini values, the random baseline line, and the
     Qini coefficient (area between model curve and random baseline).
+
+    The coefficient is in incremental visits, so it scales with the size of the
+    set it is computed on: 60 on 15,000 rows and 60 on 30,000 rows are not the
+    same quality of ranking. Anywhere two sets of different size are compared
+    below, the per-1,000 figure is what is comparable.
     """
     order = np.argsort(-score, kind="mergesort")
     y, t = np.asarray(y)[order], np.asarray(treat)[order]
@@ -626,68 +675,149 @@ def uplift_at_k(y, treat, score, k=0.30):
     return yt.mean() - yc.mean()
 
 
+def _fit_learners(train_df: pd.DataFrame, score_df: pd.DataFrame):
+    """Fit a T-learner and an S-learner on `train_df`, score `score_df` with both.
+
+    Both get the same features and the same estimator, so the only thing being
+    compared is how treatment enters: two separate outcome models, or one model
+    with treatment as a feature.
+    """
+    enc = _make_encoder(train_df)
+    Xtr = enc.transform(train_df[COVARIATES])
+    Xsc = enc.transform(score_df[COVARIATES])
+    ytr = train_df[PRIMARY_OUTCOME].values
+    ttr = train_df["T"].values
+
+    # --- T-learner (two-model) ---
+    m_t = HistGradientBoostingClassifier(random_state=SEED).fit(Xtr[ttr == 1], ytr[ttr == 1])
+    m_c = HistGradientBoostingClassifier(random_state=SEED).fit(Xtr[ttr == 0], ytr[ttr == 0])
+    score_t = m_t.predict_proba(Xsc)[:, 1] - m_c.predict_proba(Xsc)[:, 1]
+
+    # --- S-learner (single model with treatment as a feature) ---
+    s_model = HistGradientBoostingClassifier(random_state=SEED).fit(
+        np.column_stack([Xtr, ttr]), ytr
+    )
+    X1 = np.column_stack([Xsc, np.ones(len(Xsc))])
+    X0 = np.column_stack([Xsc, np.zeros(len(Xsc))])
+    score_s = s_model.predict_proba(X1)[:, 1] - s_model.predict_proba(X0)[:, 1]
+    return score_t, score_s
+
+
+def _select_learner(train: pd.DataFrame) -> dict:
+    """Choose T- vs S-learner by cross-fitted Qini, using training rows only.
+
+    This function is the whole point of the three-set discipline. Picking the
+    learner by Qini on the same held-out split that then reports the winner's
+    Qini - which is what this script used to do - biases the reported number
+    upward: the split that chose the maximum of two candidates is also the
+    split asked how good the maximum is. Here every training row is scored by
+    models that never saw it, the out-of-fold scores are pooled, and the Qini
+    of that pooled ranking decides. The reporting set is not consulted.
+
+    Cross-fitting rather than a third slice because it spends no data: all
+    27,000-odd training rows inform the choice, and the fold models are trained
+    on 80% of the training portion, close to the 100% the winner is refit on.
+    """
+    y = train[PRIMARY_OUTCOME].values
+    t = train["T"].values
+    oof_t = np.empty(len(train))
+    oof_s = np.empty(len(train))
+    # Stratify on the (arm, outcome) pair, not on the arm alone: at a 14.7%
+    # base rate, arm-only folds end up with visibly different positive counts.
+    folds = StratifiedKFold(n_splits=N_SELECT_FOLDS, shuffle=True, random_state=SEED)
+    for fit_idx, held_idx in folds.split(train, t * 2 + y):
+        oof_t[held_idx], oof_s[held_idx] = _fit_learners(
+            train.iloc[fit_idx], train.iloc[held_idx]
+        )
+    coef_t = qini_curve(y, t, oof_t)[3]
+    coef_s = qini_curve(y, t, oof_s)[3]
+    return {
+        "qini_t": coef_t,
+        "qini_s": coef_s,
+        "selected": "T-learner" if coef_t >= coef_s else "S-learner",
+        "n": len(train),
+    }
+
+
 def layer6_uplift(df: pd.DataFrame, arm: str) -> dict:
     banner(f"LAYER 6  -  Uplift modelling  ({arm} vs {CONTROL})")
     sub = df[df["segment"].isin([arm, CONTROL])].copy()
     sub["T"] = (sub["segment"] == arm).astype(int)
 
-    train, test = train_test_split(
-        sub, test_size=0.35, random_state=SEED, stratify=sub["T"]
+    train, report = train_test_split(
+        sub, test_size=REPORT_FRAC, random_state=SEED, stratify=sub["T"]
     )
-    enc = _make_encoder(train)
-    Xtr = enc.transform(train[COVARIATES])
-    Xte = enc.transform(test[COVARIATES])
-    ytr = train[PRIMARY_OUTCOME].values
-    yte = test[PRIMARY_OUTCOME].values
-    ttr = train["T"].values
-    tte = test["T"].values
 
-    # --- T-learner (two-model) ---
-    m_t = HistGradientBoostingClassifier(random_state=SEED).fit(Xtr[ttr == 1], ytr[ttr == 1])
-    m_c = HistGradientBoostingClassifier(random_state=SEED).fit(Xtr[ttr == 0], ytr[ttr == 0])
-    score_t = m_t.predict_proba(Xte)[:, 1] - m_c.predict_proba(Xte)[:, 1]
+    # 1. Choose the learner without touching the reporting set.
+    sel = _select_learner(train)
 
-    # --- S-learner (single model with treatment as a feature) ---
-    Xtr_s = np.column_stack([Xtr, ttr])
-    s_model = HistGradientBoostingClassifier(random_state=SEED).fit(Xtr_s, ytr)
-    X1 = np.column_stack([Xte, np.ones(len(Xte))])
-    X0 = np.column_stack([Xte, np.zeros(len(Xte))])
-    score_s = s_model.predict_proba(X1)[:, 1] - s_model.predict_proba(X0)[:, 1]
+    # 2. Refit both on the full training portion and score the reporting set
+    #    once. Both are scored so the optimism of same-set selection can be
+    #    quantified rather than asserted.
+    score_t, score_s = _fit_learners(train, report)
+    yte = report[PRIMARY_OUTCOME].values
+    tte = report["T"].values
 
     frac_t, qini_t, rand_t, coef_t = qini_curve(yte, tte, score_t)
-    frac_s, qini_s, _, coef_s = qini_curve(yte, tte, score_s)
+    _, qini_s, _, coef_s = qini_curve(yte, tte, score_s)
     u30_t = uplift_at_k(yte, tte, score_t, 0.30)
     u30_s = uplift_at_k(yte, tte, score_s, 0.30)
 
-    overall = (yte[tte == 1].mean() - yte[tte == 0].mean())
-    print(f"  test set            : {len(test):,} rows "
-          f"({tte.sum():,} treated / {(1-tte).sum():,} control)")
-    print(f"  overall test uplift : {overall*100:+.3f}pp")
-    print(f"  T-learner Qini coef : {coef_t:8.2f}   uplift@30% = {u30_t*100:+.3f}pp")
-    print(f"  S-learner Qini coef : {coef_s:8.2f}   uplift@30% = {u30_s*100:+.3f}pp")
-    better = "T-learner" if coef_t >= coef_s else "S-learner"
-    score_best = score_t if coef_t >= coef_s else score_s
-    print(f"  better ranker       : {better}")
+    chosen = sel["selected"]
+    score_best = score_t if chosen == "T-learner" else score_s
+    reported = coef_t if chosen == "T-learner" else coef_s
+    naive = max(coef_t, coef_s)       # what same-set selection would have quoted
+    optimism = naive - reported
+
+    per_k = lambda coef, n: coef / n * 1000
+    overall = yte[tte == 1].mean() - yte[tte == 0].mean()
+    print(f"  reporting set       : {len(report):,} rows "
+          f"({tte.sum():,} treated / {(1 - tte).sum():,} control)")
+    print(f"  overall test uplift : {overall * 100:+.3f}pp")
+    print(f"  selection ({N_SELECT_FOLDS}-fold out-of-fold, {sel['n']:,} training rows):")
+    print(f"    T-learner Qini    : {sel['qini_t']:8.2f}  "
+          f"({per_k(sel['qini_t'], sel['n']):.2f} per 1,000)")
+    print(f"    S-learner Qini    : {sel['qini_s']:8.2f}  "
+          f"({per_k(sel['qini_s'], sel['n']):.2f} per 1,000)")
+    print(f"    -> selected       : {chosen}")
+    print(f"  reporting (untouched {len(report):,} rows):")
+    print(f"    T-learner Qini    : {coef_t:8.2f}  "
+          f"({per_k(coef_t, len(report)):.2f} per 1,000)   "
+          f"uplift@30% = {u30_t * 100:+.3f}pp")
+    print(f"    S-learner Qini    : {coef_s:8.2f}  "
+          f"({per_k(coef_s, len(report)):.2f} per 1,000)   "
+          f"uplift@30% = {u30_s * 100:+.3f}pp")
+    print(f"  REPORTED Qini ({chosen}, selected elsewhere) : {reported:.2f}")
+    print(f"  same-set selection would have quoted        : {naive:.2f}  "
+          f"(winner's curse {optimism:+.2f})")
 
     REPORT.setdefault("uplift", {})[arm] = {
-        "qini_t": coef_t, "qini_s": coef_s,
+        "qini_sel_t": sel["qini_t"], "qini_sel_s": sel["qini_s"],
+        "n_select": sel["n"],
+        "qini_t": coef_t, "qini_s": coef_s, "n_report": len(report),
         "u30_t": u30_t, "u30_s": u30_s,
-        "overall_test_uplift": overall, "better": better,
+        "overall_test_uplift": overall,
+        "selected": chosen, "qini_reported": reported,
+        "qini_naive": naive, "optimism": optimism,
     }
-    _plot_qini(arm, frac_t, qini_t, rand_t, qini_s)
+    _plot_qini(arm, frac_t, qini_t, rand_t, qini_s, chosen)
     return {
-        "test": test, "score_t": score_t, "score_s": score_s,
-        "score_best": score_best, "better": better,
-        "yte": yte, "tte": tte, "qini_coef": max(coef_t, coef_s),
+        "report": report, "score_t": score_t, "score_s": score_s,
+        "score_best": score_best, "selected": chosen,
+        "yte": yte, "tte": tte, "qini_reported": reported,
     }
 
 
-def _plot_qini(arm, frac, qini_t, rand, qini_s) -> None:
+def _plot_qini(arm, frac, qini_t, rand, qini_s, chosen) -> None:
     fig, ax = plt.subplots(figsize=(6.4, 4.4))
     ax.grid(axis="y")
     ax.plot(frac, rand, color=INK3, lw=0.9, ls=DASH, label="Random targeting")
-    ax.plot(frac, qini_t, color=BLUE, label="T-learner")
-    ax.plot(frac, qini_s, color=RUST, label="S-learner")
+    # The selected learner is named in the legend so the chart cannot be read as
+    # "whichever curve is higher here is the one we shipped" - it was chosen on
+    # other data, and on this set it need not be the higher curve.
+    mark = lambda name: f"{name} (selected)" if name == chosen else name
+    ax.plot(frac, qini_t, color=BLUE, label=mark("T-learner"))
+    ax.plot(frac, qini_s, color=RUST, label=mark("S-learner"))
     ax.set_xlim(0, 1)
     ax.set_ylim(bottom=0)
     ax.xaxis.set_major_formatter(PercentFormatter(1.0, decimals=0))
@@ -702,6 +832,119 @@ def _plot_qini(arm, frac, qini_t, rand, qini_s) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Layer 6b - Calibration of predicted uplift                                   #
+# --------------------------------------------------------------------------- #
+def layer6b_calibration(arm: str, art: dict) -> dict:
+    """Do the predicted uplifts mean anything, or are they just a ranking?
+
+    A Qini curve answers only the ranking question: it is invariant to any
+    monotone transform of the score, so a model that ranks perfectly and
+    predicts every uplift as 0.3pp scores exactly as well as one that predicts
+    the truth. Layer 7 does not spend a ranking, though - it compares each
+    predicted uplift to a break-even in percentage points and contacts the
+    customer if it clears. That decision is only as good as the magnitudes, so
+    they get checked: bucket the reporting set into deciles of predicted
+    uplift, and put predicted next to observed in each.
+    """
+    banner(f"LAYER 6b -  Calibration of predicted uplift  ({arm} vs {CONTROL})")
+    yte, tte, score = art["yte"], art["tte"], art["score_best"]
+
+    # Bin on ranks rather than on the score itself: gradient-boosted scores tie
+    # on identical covariate patterns, and ties would otherwise collapse the
+    # deciles into unequal buckets.
+    bins = pd.qcut(stats.rankdata(score, method="ordinal"), N_CALIB_BINS, labels=False)
+    rows = []
+    for b in range(N_CALIB_BINS):
+        m = bins == b
+        y1, y0 = yte[m & (tte == 1)], yte[m & (tte == 0)]
+        if len(y1) < 2 or len(y0) < 2:
+            continue
+        p1, p0 = y1.mean(), y0.mean()
+        rows.append({
+            "decile": b + 1,
+            "n": int(m.sum()),
+            "predicted": float(score[m].mean()),
+            "observed": float(p1 - p0),
+            "se": float(np.sqrt(p1 * (1 - p1) / len(y1) + p0 * (1 - p0) / len(y0))),
+        })
+    tab = pd.DataFrame(rows)
+    pred, obs, se = tab["predicted"].values, tab["observed"].values, tab["se"].values
+
+    # Weighted by precision: the extreme deciles are the noisiest and should not
+    # drive the line. Perfect calibration is slope 1, intercept 0.
+    slope, intercept = np.polyfit(pred, obs, 1, w=1.0 / se)
+    rho = stats.spearmanr(pred, obs).statistic
+    mace = np.mean(np.abs(obs - pred))
+    covered = np.mean(np.abs(obs - pred) <= 1.96 * se)
+
+    print(f"  decile   n      predicted   observed        95% CI")
+    for r in tab.itertuples():
+        lo, hi = (r.observed - 1.96 * r.se) * 100, (r.observed + 1.96 * r.se) * 100
+        print(f"    {r.decile:2d}   {r.n:5,}    {r.predicted * 100:+7.2f}pp  "
+              f"{r.observed * 100:+7.2f}pp   [{lo:+6.2f}, {hi:+6.2f}]")
+    print(f"  calibration slope   : {slope:.2f}  (1.00 = predictions are on scale; "
+          f"< 1 = over-confident spread)")
+    print(f"  intercept           : {intercept * 100:+.2f}pp")
+    print(f"  Spearman rho        : {rho:+.2f}  (ranking across deciles)")
+    print(f"  mean |pred - obs|   : {mace * 100:.2f}pp")
+    print(f"  deciles whose 95% CI covers their prediction: {covered:.0%}")
+
+    REPORT.setdefault("calibration", {})[arm] = {
+        "slope": float(slope), "intercept": float(intercept),
+        "spearman": float(rho), "mace": float(mace), "covered": float(covered),
+        "table": tab,
+    }
+    _plot_calibration(arm, tab, slope, intercept)
+    return REPORT["calibration"][arm]
+
+
+def _plot_calibration(arm, tab, slope, intercept) -> None:
+    pred = tab["predicted"].values * 100
+    obs = tab["observed"].values * 100
+    err = tab["se"].values * 100 * 1.96
+    fig, ax = plt.subplots(figsize=(6.4, 4.4))
+    ax.grid(axis="y")
+    lo = min(pred.min(), (obs - err).min(), 0.0)
+    hi = max(pred.max(), (obs + err).max())
+    pad = 0.08 * (hi - lo)
+    span = np.array([lo - pad, hi + pad])
+    # Identity first, so the data sits on top of it.
+    ax.plot(span, span, color=INK3, lw=0.9, ls=DASH, label="Perfect calibration")
+    ax.plot(span, intercept * 100 + slope * span, color=RUST, lw=1.1,
+            label=f"Fitted, slope {slope:.2f}")
+    ax.errorbar(pred, obs, yerr=err, fmt="o", color=BLUE, ms=5, lw=0.9,
+                capsize=2.5, mec=PAPER, mew=0.8, label="Decile of predicted uplift")
+    # Where Layer 7 cuts: deciles to its right are the ones the policy contacts,
+    # so that is the region whose magnitudes have to be right for the policy to
+    # be right, which is the whole reason this chart exists. It goes in the
+    # legend rather than on the line - an in-place label here lands on a decile
+    # or its interval whichever way it is turned.
+    breakeven = COST_PER_EMAIL / VALUE_PER_VISIT * 100
+    if span[0] < breakeven < span[1]:
+        ax.axvline(breakeven, color=INK3, lw=0.8, ls=DOT,
+                   label=f"Policy cuts here ({breakeven:.1f}pp)")
+    ax.set_xlim(*span)
+    ax.set_ylim(*span)
+    ax.set_xlabel("Mean predicted uplift in the decile (pp)")
+    ax.set_ylabel("Observed uplift in the decile (pp)")
+    ax.set_title(f"Predicted vs. observed uplift by decile, {ARM_LABEL[arm]}")
+    # Data first, references after, ordered by label rather than by index:
+    # matplotlib returns lines before error-bar containers whatever order they
+    # were drawn in, so index arithmetic here silently reorders itself.
+    order = ["Decile of predicted uplift", "Perfect calibration"]
+    handles, labels = ax.get_legend_handles_labels()
+    rank = {lab: i for i, lab in enumerate(order)}
+    pairs = sorted(zip(labels, handles), key=lambda kv: rank.get(kv[0], len(order)))
+    # Paper-coloured knockout: the break-even rule is a full-height vertical and
+    # would otherwise run straight through the legend's own text.
+    ax.legend([h for _, h in pairs], [l for l, _ in pairs], loc="upper left",
+              frameon=True, framealpha=1.0, facecolor=PAPER, edgecolor="none")
+    safe = arm.split()[0].lower()
+    fig.savefig(FIG_DIR / f"06_calibration_{safe}.png")
+    plt.close(fig)
+
+
+# --------------------------------------------------------------------------- #
 # Layer 7 - Targeting policy value (IPW)                                       #
 # --------------------------------------------------------------------------- #
 def layer7_policy(arm: str, art: dict) -> dict:
@@ -710,7 +953,7 @@ def layer7_policy(arm: str, art: dict) -> dict:
     n = len(yte)
     p = tte.mean()  # randomized propensity in this two-arm subset
     breakeven = COST_PER_EMAIL / VALUE_PER_VISIT  # min uplift that pays for a contact
-    print(f"  policy ranker       : {art['better']} (best Qini)")
+    print(f"  policy ranker       : {art['selected']} (selected out-of-fold)")
     print(f"  economics (illustrative): visit ${VALUE_PER_VISIT:.2f}, "
           f"contact ${COST_PER_EMAIL:.2f}  ->  break-even uplift "
           f"{breakeven*100:.1f}pp")
@@ -914,6 +1157,37 @@ def write_results_md() -> None:
         "computed from the 64,000-customer Hillstrom randomized experiment._\n"
     )
 
+    def seg_lift(arm, key, level):
+        """Subgroup lift in pp, looked up by the moderator's actual level."""
+        tbl = pd.DataFrame(r["subgroup_tables"][arm])
+        hit = tbl[tbl["moderator"].str.startswith(key) & (tbl["level"] == level)]
+        return float(hit["lift_pp"].iloc[0]) if len(hit) else float("nan")
+
+    wq, wp = r["uplift"][WOMENS], r["policy"][WOMENS]
+    lines.append("## Headline figures")
+    lines.append(
+        "_Every number the README and the write-up quote, in one place, so "
+        "there is a single thing to check them against._\n")
+    lines.append("| Figure | Value |")
+    lines.append("|---|---|")
+    lines.append(f"| Randomized trial | **{r['n_total']:,}** customers, three arms |")
+    lines.append(f"| Covariate balance, max abs. SMD | **{r['max_smd']:.3f}** |")
+    lines.append(f"| Women's-email ATE on visits | **{pp(wom['visit_rd'])}** |")
+    lines.append(f"| ...among prior women's-merch buyers | "
+                 f"**{seg_lift(WOMENS, 'womens', 1):+.2f}pp** |")
+    lines.append(f"| ...among everyone else | "
+                 f"**{seg_lift(WOMENS, 'womens', 0):+.2f}pp** |")
+    lines.append(f"| Qini, Women's email (reporting set, {wq['selected']}) | "
+                 f"**{wq['qini_reported']:.1f}** |")
+    # No sign on these two: they are the figures quoted verbatim elsewhere, and
+    # a leading "+" on a dollar amount reads as a typo rather than as a sign.
+    lines.append(f"| Net value, uplift-targeted | "
+                 f"**${wp['nv_targeted']:.2f}** per 1,000 |")
+    lines.append(f"| Net value, blanket | **${wp['nv_blanket']:.2f}** per 1,000 |")
+    lines.append(f"| Contacts saved by targeting | "
+                 f"**{wp['contacts_saved_per1k']:.0f}** per 1,000 |")
+    lines.append("")
+
     lines.append("## 1. Experiment integrity")
     lines.append(
         f"- Arms: **{r['arm_sizes'][MENS]:,}** Men's email · "
@@ -961,13 +1235,50 @@ def write_results_md() -> None:
                     f"**{n0:+.2f}pp** (no) — gap {abs(y - n0):.2f}pp.")
     lines.append("")
 
-    lines.append("## 4. Uplift modelling & cost-sensitive targeting")
+    lines.append("## 4. Choosing the uplift learner without the reporting set")
+    lines.append(
+        f"_The T-learner / S-learner choice is made by cross-fitted Qini on the "
+        f"training portion ({N_SELECT_FOLDS}-fold, every row scored by models "
+        f"that never saw it). The reporting set is not consulted. Qini is in "
+        f"incremental visits and scales with the size of the set it is computed "
+        f"on, so the per-1,000 figure is what compares across the two columns._\n")
+    for arm in [MENS, WOMENS]:
+        up = r["uplift"][arm]
+        lines.append(f"**{arm}**\n")
+        lines.append(f"| Learner | Selection set (out-of-fold, n={up['n_select']:,}) "
+                     f"| Reporting set (untouched, n={up['n_report']:,}) |")
+        lines.append("|---|---|---|")
+        for name, ks, kr in [("T-learner", "qini_sel_t", "qini_t"),
+                             ("S-learner", "qini_sel_s", "qini_s")]:
+            lines.append(
+                f"| {name} | {up[ks]:.1f} "
+                f"({up[ks] / up['n_select'] * 1000:.2f} per 1,000) | {up[kr]:.1f} "
+                f"({up[kr] / up['n_report'] * 1000:.2f} per 1,000) |")
+        if up["optimism"] > 0.05:
+            tail = (f"Choosing on the reporting set, as this script used to do, "
+                    f"would have quoted **{up['qini_naive']:.1f}** instead — "
+                    f"**{up['optimism']:+.1f}** of winner's curse over two "
+                    f"candidates.")
+        else:
+            tail = ("Choosing on the reporting set, as this script used to do, "
+                    "would have picked the same learner and quoted the same "
+                    "figure: the optimism it was exposed to is zero here. That "
+                    "is now a result rather than an assumption, which is the "
+                    "point — the exposure was real either way.")
+        lines.append(
+            f"\nSelected: **{up['selected']}**. Its Qini on the untouched "
+            f"reporting set — the quotable number — is "
+            f"**{up['qini_reported']:.1f}**. {tail}\n")
+
+    lines.append("## 5. Uplift modelling & cost-sensitive targeting")
     lines.append(
         f"_Illustrative economics: a visit is worth ${VALUE_PER_VISIT:.2f} and a "
         f"contact costs ${COST_PER_EMAIL:.2f} (break-even uplift "
-        f"{COST_PER_EMAIL / VALUE_PER_VISIT * 100:.1f}pp). Net value is per 1,000 "
-        f"customers vs. contacting no one. The qualitative call — broad for Men's, "
-        f"selective for Women's — is robust to the exact prices._\n")
+        f"{COST_PER_EMAIL / VALUE_PER_VISIT * 100:.1f}pp). The threshold is that "
+        f"break-even and nothing else — it is not tuned on any split. Net value "
+        f"is per 1,000 customers vs. contacting no one. The qualitative call — "
+        f"broad for Men's, selective for Women's — is robust to the exact "
+        f"prices._\n")
     for arm in [MENS, WOMENS]:
         up = r["uplift"][arm]
         po = r["policy"][arm]
@@ -977,13 +1288,33 @@ def write_results_md() -> None:
                    if targeting_wins else
                    "**contact broadly** — targeting adds nothing")
         lines.append(
-            f"- **{arm}** (best ranker {up['better']}, Qini "
-            f"{max(up['qini_t'], up['qini_s']):.1f}): net value blanket "
+            f"- **{arm}** (ranker {up['selected']}, Qini "
+            f"{up['qini_reported']:.1f}): net value blanket "
             f"${po['nv_blanket']:+.2f} vs targeted ${po['nv_targeted']:+.2f} / 1,000 "
             f"→ {verdict}.")
     lines.append("")
 
-    lines.append("## 5. Robustness")
+    lines.append("## 6. Calibration of predicted uplift")
+    lines.append(
+        f"_Qini is invariant to any monotone transform of the score, so it "
+        f"certifies the ranking and says nothing about the magnitudes. Section 5 "
+        f"spends the magnitudes: a customer is contacted when predicted uplift "
+        f"clears {COST_PER_EMAIL / VALUE_PER_VISIT * 100:.1f}pp. Deciles of "
+        f"predicted uplift on the reporting set, predicted against observed:_\n")
+    for arm in [MENS, WOMENS]:
+        cal = r["calibration"][arm]
+        safe = arm.split()[0].lower()
+        lines.append(
+            f"- **{arm}**: calibration slope **{cal['slope']:.2f}** "
+            f"(1.00 = predictions on scale), intercept "
+            f"{cal['intercept'] * 100:+.2f}pp, Spearman rho "
+            f"**{cal['spearman']:+.2f}** across deciles, mean absolute error "
+            f"**{cal['mace'] * 100:.2f}pp**, and {cal['covered']:.0%} of deciles "
+            f"have a 95% CI covering their own prediction "
+            f"(`figures/06_calibration_{safe}.png`).")
+    lines.append("")
+
+    lines.append("## 7. Robustness")
     rb = r["robustness"]
     lines.append(
         f"- Randomization inference (B=2000) on the Women's-email visit effect: "
@@ -1018,6 +1349,7 @@ def main() -> None:
     hte = layer5_hte(df)
     for arm in [MENS, WOMENS]:
         art = layer6_uplift(df, arm)
+        layer6b_calibration(arm, art)
         layer7_policy(arm, art)
     layer8_robustness(df, hte)
     write_results_md()

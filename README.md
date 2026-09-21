@@ -2,7 +2,7 @@
 ### Turning a routine email A/B test into a targeting strategy with causal + uplift modelling
 
 **[→ Read the interactive write-up](https://yougijain.github.io/When-Average-Effects-Lie/)**
- · [Generated results](RESULTS.md) · [The analysis script](hillstrom_ab_analysis.py)
+ · [Generated results](RESULTS.md) · [The analysis script](hillstrom_ab_analysis.py) · [Changelog](CHANGELOG.md)
 
 **The business question:** A retailer runs two promotional emails — one featuring
 men's merchandise, one featuring women's. Both "work" on average. So which
@@ -48,7 +48,7 @@ fixes it."
 ## How it's built — 8 layers
 
 The single script [`hillstrom_ab_analysis.py`](hillstrom_ab_analysis.py) runs the
-whole pipeline and writes [`RESULTS.md`](RESULTS.md) plus seven figures. Every
+whole pipeline and writes [`RESULTS.md`](RESULTS.md) plus nine figures. Every
 number is computed from the data — nothing is hard-coded.
 
 | # | Layer | What it does | Why it matters in an interview |
@@ -58,13 +58,14 @@ number is computed from the data — nothing is hard-coded.
 | 3 | **Average treatment effect** | diff-in-proportions + Wald CIs; bootstrap for spend | the "textbook" A/B result everyone expects |
 | 4 | **Regression adjustment** | Lin (2013) interacted estimator, HC1 robust SE | variance reduction the right way; estimate stable ⇒ randomization confirmed |
 | 5 | **Heterogeneous effects** | subgroup CATEs + treatment×covariate interactions | **the twist** — where the average lies |
-| 6 | **Uplift modelling** | T-learner vs S-learner, Qini curve / coefficient, uplift@k | individual-level treatment effects, not just averages |
+| 6 | **Uplift modelling** | T-learner vs S-learner chosen by cross-fitted Qini, Qini curve / coefficient, uplift@k, decile calibration | individual-level treatment effects, not just averages — and a model chosen without spending the reporting split |
 | 7 | **Targeting policy value** | IPW policy value, cost-sensitive break-even threshold | converts the model into a decision with a dollar figure |
 | 8 | **Robustness & inference** | randomization inference, Benjamini-Hochberg FDR, retrospective power | the rigour that separates a real analysis from a notebook |
 
 ### Figures produced
 `01_balance_love_plot` · `02_ate_forest` · `03_hte_forest` ·
-`04_qini_mens` / `04_qini_womens` · `05_policy_mens` / `05_policy_womens`
+`04_qini_mens` / `04_qini_womens` · `05_policy_mens` / `05_policy_womens` ·
+`06_calibration_mens` / `06_calibration_womens`
 
 ---
 
@@ -79,17 +80,34 @@ python hillstrom_ab_analysis.py
 ```
 
 The script auto-downloads the dataset (~4 MB) to `data/` on first run and caches
-it. Full run is well under a minute. Open `RESULTS.md` for the headline numbers
+it, falling back to a gzipped mirror where the canonical host is blocked, and
+refusing to cache anything that isn't the published experiment — required
+columns, 64,000 rows, and the three arm sizes are all checked first. Full run is
+well under a minute. Open `RESULTS.md` for the headline numbers
 and `figures/` for the charts.
 
-`requirements.txt` is pinned to the exact versions the committed `RESULTS.md` and
-figures were produced with, and needs Python 3.12 or newer. Layers 1–5 reproduce
-to the last digit under any compatible stack. Layer 6's gradient-boosted uplift
-models are the one place the numbers have been seen to move between
-environments: an earlier run of this script recorded Qini 6.5 / 61.8 and a
-targeted Women's value of \$36.17, which neither the pinned environment nor an
-unpinned one reproduces today (both give 2.6 / 60.4 and \$33.85, identically,
-at any thread count). The committed numbers are the reproducible ones.
+### Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest tests/
+```
+
+The tests run on synthetic data and never touch the network. They cover the
+machinery whose failures wouldn't show up as a crash: the Qini coefficient
+(does it reward the true ranking over a null of random ones, is it really
+invariant to monotone rescaling — the property that makes the calibration check
+necessary — and how does it break ties), the download validator, and learner
+selection.
+
+`requirements.txt` is pinned to the exact versions the committed `RESULTS.md`
+and figures were produced with, and needs Python 3.12 or newer. Under those pins
+the whole pipeline reproduces the committed outputs byte for byte, figures
+included. Layers 1–5 also reproduce to the last digit under any compatible
+stack; Layer 6's gradient-boosted models are the one place numbers have been
+seen to move between environments, which is what the pins are for. An earlier
+run whose uplift numbers no longer reproduce is written up in
+[`CHANGELOG.md`](CHANGELOG.md).
 
 ### The write-up site
 `index.html` is a single self-contained page: no build step, no JavaScript, no
@@ -105,10 +123,20 @@ Open it locally by double-clicking it, or read the
 - **Primary outcome = `visit`.** Highest base rate (~14.7%), so the most
   statistical power. `conversion` (~0.9%) and `spend` are reported too, but the
   decision rests on the well-powered metric.
-- **T-learner *and* S-learner.** Reporting both, and selecting the better ranker
-  by Qini, is honest about model risk. (Men's: T-learner, Qini 2.6 — little to
+- **T-learner *and* S-learner, chosen off the reporting split.** Both are
+  reported, and the choice between them is made by 5-fold cross-fitted Qini on
+  the training portion — every row scored by models that never saw it — so the
+  reporting split is never asked both to pick the maximum of two candidates and
+  to say how good that maximum is. (Men's: T-learner, Qini 2.6 — little to
   rank. Women's: S-learner, Qini 60.4 — lots to rank.) The huge gap in Qini
   *is* the heterogeneity story in one number.
+- **Calibration, not just ranking.** Qini is invariant to any monotone
+  transform of the score, so it certifies the ranking and says nothing about
+  the magnitudes — and the targeting rule spends the magnitudes, comparing each
+  predicted uplift to a 3pp break-even. Deciles of predicted uplift are plotted
+  against observed: Women's comes in at slope 0.74 (on scale, somewhat
+  over-spread), Men's at 0.07 (no magnitude signal at all, which is the flat
+  Qini curve restated in units).
 - **IPW policy value.** Because treatment was randomized, the propensity is a
   known constant, so the inverse-propensity policy-value estimator is unbiased —
   no outcome model required to score the policy. The cut is set at the
@@ -124,19 +152,27 @@ Open it locally by double-clicking it, or read the
   real margins — they exist to demonstrate cost-sensitive targeting. The
   *qualitative* recommendation is robust to the exact prices.
 - Uplift models are fit on 65% of each two-arm subset and scored on the held-out
-  35%. The T-learner-vs-S-learner choice is made by Qini **on that same held-out
-  split**, so the winning learner's reported Qini is mildly optimistic (a
-  winner's curse over two candidates). The targeting *threshold* is not tuned —
-  it is fixed at the economic break-even — so the policy-value comparison itself
-  isn't threshold-shopped. A production version would use a three-way split or
-  cross-fitting for model selection, plus calibration checks.
+  35%. Neither the learner choice nor the threshold is tuned on that 35% — the
+  first is cross-fitted on the training portion, the second is fixed at the
+  economic break-even. What remains is that one split supplies the Qini, the
+  calibration and the dollar figures; three reads on one sample move together,
+  and separating them needs another sample rather than another estimator.
+- The decile the targeting rule cuts through is also the worst-calibrated one:
+  mean predicted uplift 3.7pp against an observed −1.6pp [−4.8, +1.5]. Roughly
+  1,500 customers in the held-out split are contacted who probably shouldn't
+  be. That is the standing cost of a fixed break-even threshold — it lands
+  where the predictions are noisiest — and it is preferable to moving the cut
+  to wherever this split happens to peak.
 - Layer 7's net-value figures are computed on that 35% held-out split, where the
   realized lift runs a little under the full-sample ATE (~3.8pp vs +4.52pp for
   Women's, ~7.0pp vs +7.66pp for Men's). That is sampling noise, not a
   contradiction — but it is why blanket net value (\$16.90 / 1,000 for Women's)
   doesn't reproduce if you multiply the headline ATE by \$2.
-- "Affinity" here is proxied by past-purchase flags already in the data; richer
-  features would sharpen the policy.
+- "Affinity" here is proxied by past-purchase flags already in the data. The
+  models already use every column Hillstrom records — recency, spend history
+  and its segment, channel, zip type, tenure — so there is no unused feature
+  left to add; purchase *frequency* simply isn't in the file. Sharpening the
+  policy means features from outside this dataset, not better use of it.
 
 ---
 
