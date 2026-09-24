@@ -287,7 +287,7 @@ pre .k{font-weight:600}
   <figcaption>Covariate balance between email and control. Every standardized mean difference is well inside the conventional 0.10 line.</figcaption>
 </figure></div>
 
-<p>Randomization has to be checked, not assumed. The arms are 21,307, 21,387 and 21,306 customers. Across every pre-treatment covariate&thinsp;&mdash;&thinsp;recency, spend history, prior men&rsquo;s and women&rsquo;s purchases, newness, geography, acquisition channel&thinsp;&mdash;&thinsp;the largest standardized mean difference between an email arm and control is 0.009, against a conventional threshold of 0.10. An omnibus logistic test of whether the covariates jointly predict assignment gives <span class="num">p = 0.76</span>.</p>
+<p>Randomization has to be checked, not assumed. The arms are 21,307, 21,387 and 21,306 customers. Across every pre-treatment covariate (recency, spend history, prior men&rsquo;s and women&rsquo;s purchases, newness, geography, acquisition channel) the largest standardized mean difference between an email arm and control is 0.009, against a conventional threshold of 0.10. An omnibus logistic test of whether the covariates jointly predict assignment gives <span class="num">p = 0.76</span>.</p>
 
 <p>Nothing about who received which email is predictable from who they were beforehand. So a difference in outcomes between arms is an effect of the email, and the rest of the analysis can take that for granted.</p>
 
@@ -424,11 +424,11 @@ pi = (score &gt; breakeven).astype(int)</code></pre>
 
 <p><strong>The dollar figures are assumptions.</strong> Two dollars a visit and six cents a contact were chosen to demonstrate cost-sensitive targeting, not taken from Hillstrom&rsquo;s books. What survives any reasonable pair of prices is the shape: broad for Men&rsquo;s, selective for Women&rsquo;s.</p>
 
-<p><strong>The policy is scored on the split it was built against.</strong> Model selection no longer touches it&thinsp;&mdash;&thinsp;that runs cross-fitted on the training portion&thinsp;&mdash;&thinsp;and the threshold is not tuned either, which is why the rule lands at 59% rather than the 50% peak in Figure 3. What remains is that the same 35% supplies the Qini, the calibration and the dollar figures. Those are three reads on one sample, and they move together. Fixing that needs another sample, not another estimator.</p>
+<p><strong>The policy is scored on the split it was built against.</strong> Model selection no longer touches it; that runs cross-fitted on the training portion. The threshold is not tuned either, which is why the rule lands at 59% rather than the 50% peak in Figure 3. What remains is that the same 35% supplies the Qini, the calibration and the dollar figures. Those are three reads on one sample, and they move together. Fixing that needs another sample, not another estimator.</p>
 
 <p><strong>The policy numbers and the headline lifts come from different samples.</strong> Net value is computed on the 35% held-out split, where the realized Women&rsquo;s lift is about 3.8 points against the full-sample 4.52. That is sampling noise, not a contradiction, but it is why $16.90 doesn&rsquo;t fall out of multiplying 4.52 by two dollars.</p>
 
-<p><strong>&ldquo;Affinity&rdquo; is a purchase flag.</strong> The models already see everything Hillstrom records&thinsp;&mdash;&thinsp;recency, spend history and its segment, channel, region, tenure&thinsp;&mdash;&thinsp;so there is no unused column left to add; purchase frequency simply isn&rsquo;t in the file. Sharpening the policy means better features from outside this dataset, not better use of it. And the right next step for a real deployment is not more modelling at all. It is a fresh holdout experiment that A/B tests the targeted send against the blanket one.</p>
+<p><strong>&ldquo;Affinity&rdquo; is a purchase flag.</strong> The models already see everything Hillstrom records (recency, spend history and its segment, channel, region, tenure), so there is no unused column left to add; purchase frequency simply isn&rsquo;t in the file. Sharpening the policy means better features from outside this dataset, not better use of it. And the right next step for a real deployment is not more modelling at all. It is a fresh holdout experiment that A/B tests the targeted send against the blanket one.</p>
 
 <h2>Reproducing it</h2>
 

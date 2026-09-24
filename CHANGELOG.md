@@ -40,13 +40,13 @@ versioned.
   a targeted Women's value of \$36.17, 409 contacts saved and a targeted Men's
   value of \$75.63. Neither the pinned environment nor an unpinned one
   reproduces those numbers: both give Qini 2.6 / 60.4, \$33.85 targeted vs
-  \$16.90 blanket, and 415 contacts saved — identically, on Python 3.13 under
+  \$16.90 blanket, and 415 contacts saved, identically: on Python 3.13 under
   the exact pins, on Python 3.11 under a different numpy / scikit-learn, and at
   1, 2, 4 and 8 threads. Layers 1–5 reproduced to the digit throughout; the
   drift was confined to Layer 6's gradient-boosted models.
 - `RESULTS.md`, the figures, the README and the write-up now carry the
-  reproducible set. The qualitative result — broad for Men's, selective for
-  Women's — was unchanged by the correction.
+  reproducible set. The qualitative result, broad for Men's and selective for
+  Women's, was unchanged by the correction.
 
 ### Changed
 - `requirements.txt` pinned to the exact versions the committed outputs were
