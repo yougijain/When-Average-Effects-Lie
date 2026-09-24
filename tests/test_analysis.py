@@ -261,3 +261,38 @@ def test_bootstrap_centres_on_the_observed_gain():
     ])
     assert abs(gains.mean() - gain_obs) < 0.25 * gains.std()
     assert gains.std() > 0
+
+
+# --------------------------------------------------------------------------- #
+# Social card                                                                 #
+# --------------------------------------------------------------------------- #
+def _load_card_module():
+    import importlib.util
+    path = Path(__file__).resolve().parents[1] / "tools" / "make_social_card.py"
+    spec = importlib.util.spec_from_file_location("make_social_card", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_social_card_reads_the_committed_headline_figures():
+    """The card quotes numbers, so it must read them, not carry its own copy."""
+    card = _load_card_module()
+    v = card.read_headline_figures()
+    assert set(v) == {"ate", "buyers", "others"}
+    # Sanity against the analysis: the two segments straddle the average.
+    assert v["others"] < v["ate"] < v["buyers"]
+
+
+def test_social_card_fails_loudly_if_the_headline_table_moves():
+    """Silence here is the failure mode worth guarding.
+
+    If a row is renamed and the lookup just misses, the card keeps rendering
+    with whatever it found last and starts disagreeing with RESULTS.md. That is
+    exactly the drift the changelog records happening to the resume, so the
+    lookup exits instead of falling back.
+    """
+    card = _load_card_module()
+    card.WANTED = dict(card.WANTED, ate="A row that does not exist")
+    with pytest.raises(SystemExit, match="would go stale silently"):
+        card.read_headline_figures()
