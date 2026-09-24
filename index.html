@@ -361,17 +361,18 @@ pi = (score &gt; breakeven).astype(int)</code></pre>
 
 <div class="tablewrap">
 <table>
-  <caption>Net value per 1,000 customers versus contacting no one. Held-out split; $2 per incremental visit, $0.06 per contact.</caption>
+  <caption>Net value per 1,000 customers versus contacting no one, with 95% bootstrap intervals over the reporting split. $2 per incremental visit, $0.06 per contact.</caption>
   <thead><tr><th>Policy</th><th class="n">Men&rsquo;s email</th><th class="n">Women&rsquo;s email</th></tr></thead>
   <tbody>
     <tr><td>Contact everyone</td><td class="n">$80.76</td><td class="n">$16.90</td></tr>
     <tr><td>Contact if predicted uplift exceeds 3 pp</td><td class="n">$78.29</td><td class="n hl">$33.85</td></tr>
+    <tr><td>Gain from targeting</td><td class="n">&minus;$2.47<br><span class="ci">[&minus;$9.97, +$5.23]</span></td><td class="n hl">+$16.95<br><span class="ci">[+$2.99, +$30.60]</span></td></tr>
     <tr><td>Contacts sent per 1,000 under that rule</td><td class="n">916</td><td class="n">585</td></tr>
   </tbody>
 </table>
 </div>
 
-<p>The Women&rsquo;s rule contacts 59% of customers, 415 fewer per thousand than the blanket send, and doubles net value. The Men&rsquo;s rule can only lose: every segment clears the break-even, so the 8% of customers it drops were worth contacting, and it comes in about two and a half dollars under the blanket send. Send the Men&rsquo;s email to everyone.</p>
+<p>The Women&rsquo;s rule contacts 59% of customers, 415 fewer per thousand than the blanket send, and adds about seventeen dollars per thousand on top of it. The Men&rsquo;s rule can only lose: every segment clears the break-even, so the 8% of customers it drops were worth contacting, and it comes in about two and a half dollars under the blanket send. Send the Men&rsquo;s email to everyone. How firm either of those numbers is takes another section.</p>
 
 <figure class="wide numbered">
   <div class="pair">
@@ -380,6 +381,22 @@ pi = (score &gt; breakeven).astype(int)</code></pre>
   </div>
   <figcaption>Net value per 1,000 as the contacted share grows, with customers ordered by predicted uplift. Men&rsquo;s (left) climbs all the way to 100%: every customer is worth an email. Women&rsquo;s (right) peaks near half the list and then declines as the emails go to people they don&rsquo;t move. The rule contacts 59%, not the 50% peak, because the cut is fixed at the economic break-even rather than tuned to this curve. That is deliberate, and it is discussed below.</figcaption>
 </figure>
+
+<h2>How much of this is one sample?</h2>
+
+<p>Every figure in that table is a point estimate from a single 14,900-customer split. Quoting it to the cent invites reading it as exact. Resampling the split 2,000 times, with the fitted scores held fixed, says instead what those figures would have looked like on a different draw of the same size.<label for="sn-8" class="sn"></label><input type="checkbox" id="sn-8" class="sn-toggle"><span class="sidenote">Holding the scores fixed means these are intervals on the estimates <em>given this fitted model</em>, not on the modelling procedure. Covering that would mean refitting both learners inside every resample, training split included &mdash; a different and far more expensive claim than the one being made here.</span></p>
+
+<figure class="wide numbered">
+  <div class="pair">
+    <img src="figures/07_uncertainty_mens.png" alt="Bootstrap distribution of the gain from targeting, Men's email. The distribution is centred near minus two and a half dollars and straddles zero, with a 95% interval from about minus ten to plus five dollars." width="850" height="650" />
+    <img src="figures/07_uncertainty_womens.png" alt="Bootstrap distribution of the gain from targeting, Women's email. The distribution is centred near plus seventeen dollars and sits almost entirely above zero, with a 95% interval from about three to thirty dollars." width="850" height="650" />
+  </div>
+  <figcaption>Net value of targeting minus blanket, per 1,000, across 2,000 resamples of the reporting split. Men&rsquo;s (left) straddles zero. Women&rsquo;s (right) clears it in 99.4% of resamples.</figcaption>
+</figure>
+
+<p>The Women&rsquo;s gain survives the check: <span class="num">+$16.95</span> per thousand, interval <span class="num">$2.99</span> to <span class="num">$30.60</span>. <strong>The ratio does not.</strong> Targeted over blanket is 2.0&times; at the point estimate, and &ldquo;doubles net value&rdquo; is the line a summary reaches for first &mdash; but the blanket figure&rsquo;s own interval runs from <span class="num">&minus;$4.92</span> to <span class="num">$39.15</span> and covers zero, and a ratio whose denominator might be nothing is unbounded. The difference is the claim. The multiple is an artifact of dividing by a number the data does not pin down.</p>
+
+<p>The Men&rsquo;s panel does more than confirm what Figure 3 showed. Its gain from targeting is <span class="num">&minus;$2.47</span>, interval <span class="num">&minus;$9.97</span> to <span class="num">$5.23</span> &mdash; which is not &ldquo;targeting loses a little&rdquo; but &ldquo;this split cannot tell&rdquo;. The Qini coefficient reads the same way once it has an interval on it: <span class="num">2.6</span> sounds like a weak ranker, and <span class="num">[&minus;23.1, +29.3]</span> says it is a ranker not distinguishable from no ranking at all. So the instruction to contact everyone stops resting on one small number.</p>
 
 <h2>Do the predicted numbers mean anything?</h2>
 
@@ -415,7 +432,7 @@ pi = (score &gt; breakeven).astype(int)</code></pre>
 
 <h2>Reproducing it</h2>
 
-<p>Everything here is computed by a single script, <code>hillstrom_ab_analysis.py</code>, from the raw 64,000-row file. It downloads the data on first run, writes <a href="https://github.com/yougijain/When-Average-Effects-Lie/blob/main/RESULTS.md"><code>RESULTS.md</code></a>, and saves the nine figures. It runs in eight stages:</p>
+<p>Everything here is computed by a single script, <code>hillstrom_ab_analysis.py</code>, from the raw 64,000-row file. It downloads the data on first run, writes <a href="https://github.com/yougijain/When-Average-Effects-Lie/blob/main/RESULTS.md"><code>RESULTS.md</code></a>, and saves the eleven figures. It runs in eight stages:</p>
 
 <ol>
   <li>Load and validate: shape, missingness, arm sizes, outcome base rates.</li>
@@ -424,7 +441,7 @@ pi = (score &gt; breakeven).astype(int)</code></pre>
   <li>Regression adjustment: the Lin (2013) interacted estimator with HC1 errors.</li>
   <li>Heterogeneous effects: subgroup estimates and treatment&thinsp;&times;&thinsp;covariate interaction tests.</li>
   <li>Uplift modelling: T-learner and S-learner, the choice between them cross-fitted on the training portion, Qini curves and coefficients, uplift at <em>k</em>, and decile calibration of the predicted uplifts.</li>
-  <li>Policy value: inverse-propensity estimates at the cost&thinsp;/&thinsp;value break-even.</li>
+  <li>Policy value: inverse-propensity estimates at the cost&thinsp;/&thinsp;value break-even, with bootstrap intervals on every dollar figure.</li>
   <li>Robustness: randomization inference, Benjamini&ndash;Hochberg control, retrospective power.</li>
 </ol>
 
