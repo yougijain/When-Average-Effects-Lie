@@ -1380,7 +1380,7 @@ def write_results_md() -> None:
     lines.append("\nRegression adjustment (Lin 2013) left the point estimates "
                  "essentially unchanged while cutting the sampling **variance** by "
                  f"**{r['adjustment'][WOMENS]['var_red']:.0%}** (Women's) / "
-                 f"**{r['adjustment'][MENS]['var_red']:.0%}** (Men's) — exactly "
+                 f"**{r['adjustment'][MENS]['var_red']:.0%}** (Men's), exactly "
                  "what you expect when assignment is random.\n")
 
     lines.append("## 3. The twist — heterogeneous effects")
@@ -1402,7 +1402,7 @@ def write_results_md() -> None:
                 y, n0 = float(yes.iloc[0]), float(no.iloc[0])
                 lines.append(
                     f"- **{arm}** × {lab}: **{y:+.2f}pp** (yes) vs "
-                    f"**{n0:+.2f}pp** (no) — gap {abs(y - n0):.2f}pp.")
+                    f"**{n0:+.2f}pp** (no); gap {abs(y - n0):.2f}pp.")
     lines.append("")
 
     lines.append("## 4. Choosing the uplift learner without the reporting set")
@@ -1426,7 +1426,7 @@ def write_results_md() -> None:
                 f"({up[kr] / up['n_report'] * 1000:.2f} per 1,000) |")
         if up["optimism"] > 0.05:
             tail = (f"Choosing on the reporting set, as this script used to do, "
-                    f"would have quoted **{up['qini_naive']:.1f}** instead — "
+                    f"would have quoted **{up['qini_naive']:.1f}** instead, "
                     f"**{up['optimism']:+.1f}** of winner's curse over two "
                     f"candidates.")
         else:
@@ -1434,11 +1434,11 @@ def write_results_md() -> None:
                     "would have picked the same learner and quoted the same "
                     "figure: the optimism it was exposed to is zero here. That "
                     "is now a result rather than an assumption, which is the "
-                    "point — the exposure was real either way.")
+                    "point. The exposure was real either way.")
         unc = r["uncertainty"][arm]
         lines.append(
             f"\nSelected: **{up['selected']}**. Its Qini on the untouched "
-            f"reporting set — the quotable number — is "
+            f"reporting set, the quotable number, is "
             f"**{up['qini_reported']:.1f}** (95% CI "
             f"{unc['qini_ci'][0]:.1f} to {unc['qini_ci'][1]:.1f}). {tail}\n")
 
@@ -1447,9 +1447,9 @@ def write_results_md() -> None:
         f"_Illustrative economics: a visit is worth ${VALUE_PER_VISIT:.2f} and a "
         f"contact costs ${COST_PER_EMAIL:.2f} (break-even uplift "
         f"{COST_PER_EMAIL / VALUE_PER_VISIT * 100:.1f}pp). The threshold is that "
-        f"break-even and nothing else — it is not tuned on any split. Net value "
-        f"is per 1,000 customers vs. contacting no one. The qualitative call — "
-        f"broad for Men's, selective for Women's — is robust to the exact "
+        f"break-even and nothing else, tuned on no split. Net value is per "
+        f"1,000 customers vs. contacting no one. The qualitative call, broad "
+        f"for Men's and selective for Women's, is robust to the exact "
         f"prices._\n")
     for arm in [MENS, WOMENS]:
         up = r["uplift"][arm]
@@ -1463,9 +1463,9 @@ def write_results_md() -> None:
             verdict = (f"**target the top {po['targeted_frac']:.0%}** "
                        f"(saves {po['contacts_saved_per1k']:.0f} contacts/1,000)")
         elif hi < 0:
-            verdict = "**contact broadly** — targeting measurably loses money"
+            verdict = "**contact broadly**; targeting measurably loses money"
         else:
-            verdict = ("**contact broadly** — the gain from targeting is not "
+            verdict = ("**contact broadly**; the gain from targeting is not "
                        "distinguishable from zero")
         lines.append(
             f"- **{arm}** (ranker {up['selected']}, Qini "
@@ -1527,15 +1527,15 @@ def write_results_md() -> None:
     lines.append(
         f"Two things the point estimates hid. The Men's-email Qini of "
         f"{mu['qini']:.1f} has an interval of "
-        f"[{mu['qini_ci'][0]:.1f}, {mu['qini_ci'][1]:.1f}] — it covers zero, so "
-        f"that ranker is not merely weak, it is indistinguishable from no "
+        f"[{mu['qini_ci'][0]:.1f}, {mu['qini_ci'][1]:.1f}], which covers zero. "
+        f"That ranker is not merely weak; it is indistinguishable from no "
         f"ranking at all. And its gain from targeting, "
         f"{money(mu['gain'], sign=True)} "
         f"[{money(mu['gain_ci'][0], sign=True)}, "
         f"{money(mu['gain_ci'][1], sign=True)}], covers zero too: the honest reading is not "
         f"\"targeting loses a little\" but \"this split cannot tell\". Both point "
         f"the same way as the calibration slope of "
-        f"{r['calibration'][MENS]['slope']:.2f} — contact broadly.\n")
+        f"{r['calibration'][MENS]['slope']:.2f}. Contact broadly.\n")
     if wu2["ratio_unbounded"]:
         lines.append(
             f"For the Women's email the gain is real: "

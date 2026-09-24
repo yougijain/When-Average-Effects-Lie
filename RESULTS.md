@@ -28,14 +28,14 @@ _Every number the README and the write-up quote, in one place, so there is a sin
 | Men's email | +7.66pp | [+7.00, +8.32] | 0.0e+00 |
 | Women's email | +4.52pp | [+3.89, +5.16] | 0.0e+00 |
 
-Regression adjustment (Lin 2013) left the point estimates essentially unchanged while cutting the sampling **variance** by **3%** (Women's) / **3%** (Men's) — exactly what you expect when assignment is random.
+Regression adjustment (Lin 2013) left the point estimates essentially unchanged while cutting the sampling **variance** by **3%** (Women's) / **3%** (Men's), exactly what you expect when assignment is random.
 
 ## 3. The twist — heterogeneous effects
 - Strongest moderation: **Womens E-Mail: T x womens** (BH-adjusted p = 0.000).
-- **Mens E-Mail** × prior men's-merch buyer: **+8.16pp** (yes) vs **+7.06pp** (no) — gap 1.10pp.
-- **Mens E-Mail** × prior women's-merch buyer: **+8.26pp** (yes) vs **+6.92pp** (no) — gap 1.34pp.
-- **Womens E-Mail** × prior men's-merch buyer: **+2.18pp** (yes) vs **+7.40pp** (no) — gap 5.22pp.
-- **Womens E-Mail** × prior women's-merch buyer: **+7.31pp** (yes) vs **+1.11pp** (no) — gap 6.20pp.
+- **Mens E-Mail** × prior men's-merch buyer: **+8.16pp** (yes) vs **+7.06pp** (no); gap 1.10pp.
+- **Mens E-Mail** × prior women's-merch buyer: **+8.26pp** (yes) vs **+6.92pp** (no); gap 1.34pp.
+- **Womens E-Mail** × prior men's-merch buyer: **+2.18pp** (yes) vs **+7.40pp** (no); gap 5.22pp.
+- **Womens E-Mail** × prior women's-merch buyer: **+7.31pp** (yes) vs **+1.11pp** (no); gap 6.20pp.
 
 ## 4. Choosing the uplift learner without the reporting set
 _The T-learner / S-learner choice is made by cross-fitted Qini on the training portion (5-fold, every row scored by models that never saw it). The reporting set is not consulted. Qini is in incremental visits and scales with the size of the set it is computed on, so the per-1,000 figure is what compares across the two columns._
@@ -47,7 +47,7 @@ _The T-learner / S-learner choice is made by cross-fitted Qini on the training p
 | T-learner | 2.7 (0.10 per 1,000) | 2.6 (0.17 per 1,000) |
 | S-learner | 0.3 (0.01 per 1,000) | 1.7 (0.11 per 1,000) |
 
-Selected: **T-learner**. Its Qini on the untouched reporting set — the quotable number — is **2.6** (95% CI -23.1 to 29.3). Choosing on the reporting set, as this script used to do, would have picked the same learner and quoted the same figure: the optimism it was exposed to is zero here. That is now a result rather than an assumption, which is the point — the exposure was real either way.
+Selected: **T-learner**. Its Qini on the untouched reporting set, the quotable number, is **2.6** (95% CI -23.1 to 29.3). Choosing on the reporting set, as this script used to do, would have picked the same learner and quoted the same figure: the optimism it was exposed to is zero here. That is now a result rather than an assumption, which is the point. The exposure was real either way.
 
 **Womens E-Mail**
 
@@ -56,12 +56,12 @@ Selected: **T-learner**. Its Qini on the untouched reporting set — the quotabl
 | T-learner | 49.5 (1.78 per 1,000) | 50.5 (3.38 per 1,000) |
 | S-learner | 85.6 (3.08 per 1,000) | 60.4 (4.04 per 1,000) |
 
-Selected: **S-learner**. Its Qini on the untouched reporting set — the quotable number — is **60.4** (95% CI 36.8 to 84.9). Choosing on the reporting set, as this script used to do, would have picked the same learner and quoted the same figure: the optimism it was exposed to is zero here. That is now a result rather than an assumption, which is the point — the exposure was real either way.
+Selected: **S-learner**. Its Qini on the untouched reporting set, the quotable number, is **60.4** (95% CI 36.8 to 84.9). Choosing on the reporting set, as this script used to do, would have picked the same learner and quoted the same figure: the optimism it was exposed to is zero here. That is now a result rather than an assumption, which is the point. The exposure was real either way.
 
 ## 5. Uplift modelling & cost-sensitive targeting
-_Illustrative economics: a visit is worth $2.00 and a contact costs $0.06 (break-even uplift 3.0pp). The threshold is that break-even and nothing else — it is not tuned on any split. Net value is per 1,000 customers vs. contacting no one. The qualitative call — broad for Men's, selective for Women's — is robust to the exact prices._
+_Illustrative economics: a visit is worth $2.00 and a contact costs $0.06 (break-even uplift 3.0pp). The threshold is that break-even and nothing else, tuned on no split. Net value is per 1,000 customers vs. contacting no one. The qualitative call, broad for Men's and selective for Women's, is robust to the exact prices._
 
-- **Mens E-Mail** (ranker T-learner, Qini 2.6): net value blanket $80.76 vs targeted $78.29 / 1,000, a gain of **-$2.47** [-$9.97, +$5.23] → **contact broadly** — the gain from targeting is not distinguishable from zero.
+- **Mens E-Mail** (ranker T-learner, Qini 2.6): net value blanket $80.76 vs targeted $78.29 / 1,000, a gain of **-$2.47** [-$9.97, +$5.23] → **contact broadly**; the gain from targeting is not distinguishable from zero.
 - **Womens E-Mail** (ranker S-learner, Qini 60.4): net value blanket $16.90 vs targeted $33.85 / 1,000, a gain of **+$16.95** [+$2.99, +$30.60] → **target the top 59%** (saves 415 contacts/1,000).
 
 ## 6. Calibration of predicted uplift
@@ -78,7 +78,7 @@ _The reporting split is one 14,943-row draw. Resampling it 2,000 times, with the
 | Mens E-Mail | 2.6 [-23.1, 29.3] | $80.76 [$58.22, $102.16] | $78.29 [$56.16, $98.51] | **-$2.47** [-$9.97, +$5.23] | 0.270 |
 | Womens E-Mail | 60.4 [36.8, 84.9] | $16.90 [-$4.92, $39.15] | $33.85 [$16.94, $52.37] | **+$16.95** [+$2.99, +$30.60] | 0.994 |
 
-Two things the point estimates hid. The Men's-email Qini of 2.6 has an interval of [-23.1, 29.3] — it covers zero, so that ranker is not merely weak, it is indistinguishable from no ranking at all. And its gain from targeting, -$2.47 [-$9.97, +$5.23], covers zero too: the honest reading is not "targeting loses a little" but "this split cannot tell". Both point the same way as the calibration slope of 0.07 — contact broadly.
+Two things the point estimates hid. The Men's-email Qini of 2.6 has an interval of [-23.1, 29.3], which covers zero. That ranker is not merely weak; it is indistinguishable from no ranking at all. And its gain from targeting, -$2.47 [-$9.97, +$5.23], covers zero too: the honest reading is not "targeting loses a little" but "this split cannot tell". Both point the same way as the calibration slope of 0.07. Contact broadly.
 
 For the Women's email the gain is real: +$16.95 per 1,000, interval [+$2.99, +$30.60], clear of zero in 99.4% of resamples. The **ratio** is not reportable, though, and it is the number a summary reaches for first. Targeted over blanket is 2.0x at the point estimate, but the blanket figure's own interval [-$4.92, $39.15] covers $0, which leaves the ratio unbounded. Quote the difference, not the multiple.
 
