@@ -117,7 +117,9 @@ run whose uplift numbers no longer reproduce is written up in
 
 ### The write-up site
 `index.html` is a single self-contained page: no build step, no JavaScript, no
-CDN calls. Its only assets are the committed figures in `figures/` and two
+CDN calls. `social-card.png` is the 1280x640 Open Graph image it and the repo
+share; `python tools/make_social_card.py` regenerates it, reading its figures
+out of `RESULTS.md` so the card cannot drift away from the analysis. Its only assets are the committed figures in `figures/` and two
 self-hosted font files in `fonts/` (Source Serif 4, SIL Open Font License).
 Open it locally by double-clicking it, or read the
 [hosted version](https://yougijain.github.io/When-Average-Effects-Lie/).
