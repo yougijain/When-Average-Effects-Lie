@@ -115,6 +115,9 @@ N_SELECT_FOLDS = 5
 # Deciles of predicted uplift for the calibration check in Layer 6b.
 N_CALIB_BINS = 10
 
+# Bootstrap resamples of the reporting split for the Layer 7b intervals.
+N_BOOT_REPORT = 2000
+
 # Illustrative economics for the policy section (clearly-stated ASSUMPTIONS,
 # not claims about Hillstrom's real margins). These two numbers only set the
 # break-even uplift = COST/VALUE; the qualitative targeting call is robust to a
@@ -1075,6 +1078,151 @@ def _plot_policy_curve(arm, yte, tte, score, p, rule_frac=None) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Layer 7b - Sampling uncertainty on the reporting split                       #
+# --------------------------------------------------------------------------- #
+def _reporting_stats(y, t, score, policy):
+    """Qini coefficient and net values for one (resampled) reporting split.
+
+    The propensity is re-read from the sample rather than fixed at the design
+    constant, matching what Layer 7 does with the real split: it is the same
+    estimator, so the bootstrap centres on the point estimate instead of
+    drifting away from it as resamples land with a different treated share.
+    """
+    p = t.mean()
+
+    def ipw(pol):
+        w = np.where(pol == 1, (t == 1) / p, (t == 0) / (1 - p))
+        return (w * y).mean()
+
+    v_none = ipw(np.zeros(len(y), int))
+    v_all = ipw(np.ones(len(y), int))
+    v_pi = ipw(policy)
+    frac = policy.mean()
+
+    def net(v, email_frac):
+        return ((v - v_none) * VALUE_PER_VISIT - email_frac * COST_PER_EMAIL) * 1000
+
+    return qini_curve(y, t, score)[3], net(v_all, 1.0), net(v_pi, frac), frac
+
+
+def layer7b_uncertainty(arm: str, art: dict) -> dict:
+    """How much of the reporting split's story is sampling noise?
+
+    Layer 6 and Layer 7 report a Qini coefficient and two dollar figures as
+    point estimates, which invites reading them as exact. They come from one
+    14,900-row draw. This resamples that draw and reports what the numbers
+    would have looked like on a different one.
+
+    The scores are held fixed across resamples, so the models are not refit:
+    these are intervals on the estimates *given this fitted model*, not on the
+    modelling procedure as a whole. Widening them to cover model fitting would
+    mean refitting inside every resample and needs the training split too,
+    which is a different and much more expensive claim.
+    """
+    banner(f"LAYER 7b -  Sampling uncertainty  ({arm} vs {CONTROL})")
+    yte, tte, score = art["yte"], art["tte"], art["score_best"]
+    breakeven = COST_PER_EMAIL / VALUE_PER_VISIT
+    policy = (score > breakeven).astype(int)
+    n = len(yte)
+
+    # A private generator: RNG is the module-level stream Layer 8's permutation
+    # test draws from, and borrowing it here would shift every later draw.
+    rng = np.random.default_rng(SEED)
+    boot = np.empty((N_BOOT_REPORT, 4))
+    for b in range(N_BOOT_REPORT):
+        idx = rng.integers(0, n, n)
+        boot[b] = _reporting_stats(yte[idx], tte[idx], score[idx], policy[idx])
+    qini_b, nv_blanket_b, nv_targeted_b, frac_b = boot.T
+    gain_b = nv_targeted_b - nv_blanket_b
+
+    def ci(x):
+        return float(np.percentile(x, 2.5)), float(np.percentile(x, 97.5))
+
+    obs = _reporting_stats(yte, tte, score, policy)
+    gain_obs = obs[2] - obs[1]
+    p_better = float((gain_b > 0).mean())
+
+    print(f"  {N_BOOT_REPORT:,} resamples of the {n:,}-row reporting split, "
+          f"scores held fixed")
+    print(f"  Qini ({art['selected']})   : {obs[0]:7.2f}  "
+          f"95% CI [{ci(qini_b)[0]:.2f}, {ci(qini_b)[1]:.2f}]")
+    print(f"  net value, blanket  : ${obs[1]:+7.2f}  "
+          f"95% CI [${ci(nv_blanket_b)[0]:+.2f}, ${ci(nv_blanket_b)[1]:+.2f}]")
+    print(f"  net value, targeted : ${obs[2]:+7.2f}  "
+          f"95% CI [${ci(nv_targeted_b)[0]:+.2f}, ${ci(nv_targeted_b)[1]:+.2f}]")
+    print(f"  GAIN from targeting : ${gain_obs:+7.2f}  "
+          f"95% CI [${ci(gain_b)[0]:+.2f}, ${ci(gain_b)[1]:+.2f}]")
+    print(f"  P(targeting beats blanket) = {p_better:.3f}")
+    # The ratio is the number people reach for and the one the data supports
+    # least: it divides by a quantity whose own interval can straddle zero.
+    blanket_lo, blanket_hi = ci(nv_blanket_b)
+    if blanket_lo <= 0 <= blanket_hi:
+        print("  ratio (targeted/blanket) not reported: the blanket figure's own "
+              "interval covers $0, so the ratio is unbounded. Quote the "
+              "difference.")
+
+    REPORT.setdefault("uncertainty", {})[arm] = {
+        "n_boot": N_BOOT_REPORT, "n_report": n,
+        "qini": obs[0], "qini_ci": ci(qini_b),
+        "nv_blanket": obs[1], "nv_blanket_ci": ci(nv_blanket_b),
+        "nv_targeted": obs[2], "nv_targeted_ci": ci(nv_targeted_b),
+        "gain": gain_obs, "gain_ci": ci(gain_b), "p_better": p_better,
+        "ratio_unbounded": bool(blanket_lo <= 0 <= blanket_hi),
+    }
+    _plot_uncertainty(arm, gain_b, gain_obs, ci(gain_b))
+    return REPORT["uncertainty"][arm]
+
+
+def _plot_uncertainty(arm, gain_b, gain_obs, gain_ci) -> None:
+    """Where the gain from targeting lands across resamples of this split.
+
+    Every dollar sign here is escaped. Matplotlib reads a *pair* of unescaped
+    "$" as mathtext delimiters, so "$2.99 to $30.60" silently renders as italic
+    maths with the signs eaten.
+    """
+    fig, ax = plt.subplots(figsize=(6.4, 4.4))
+    ax.grid(axis="y")
+    counts, _, _ = ax.hist(gain_b, bins=46, color=BLUE, alpha=0.85,
+                           edgecolor=PAPER, linewidth=0.4)
+    # Headroom above the tallest bar so the labels sit on paper, not on ink.
+    top = counts.max() * 1.22
+    ax.set_ylim(0, top)
+    ax.axvline(0, color=INK3, lw=0.9, ls=DASH)
+    ax.axvline(gain_obs, color=RUST, lw=1.3)
+
+    # Each label goes on the far side of its own line, away from the other one.
+    # When the gain is negative its line sits left of zero, and two labels both
+    # reaching inward would land on top of each other. Different heights as
+    # well, so the two stay legible even when the lines nearly coincide.
+    knockout = dict(boxstyle="square,pad=0.18", fc=PAPER, ec="none")
+    obs_left = gain_obs < 0
+    ax.annotate(f"observed \\${gain_obs:+.2f}", (gain_obs, top * 0.97),
+                xytext=(-5 if obs_left else 5, 0), textcoords="offset points",
+                ha="right" if obs_left else "left", va="top",
+                fontsize=8.5, color=RUST, bbox=knockout)
+    ax.annotate("no gain", (0, top * 0.88),
+                xytext=(5 if obs_left else -5, 0), textcoords="offset points",
+                ha="left" if obs_left else "right", va="top",
+                fontsize=8, color=INK3, bbox=knockout)
+
+    # The interval as a rule inside the axes, under the distribution: the bars
+    # already carry the ink, and a shaded band behind them reads as a series.
+    # Inside rather than below, so it cannot collide with the axis label.
+    ax.plot(gain_ci, [top * 0.045] * 2, color=INK, lw=1.8, solid_capstyle="butt")
+    ax.text(np.mean(gain_ci), top * 0.075,
+            f"95% CI  \\${gain_ci[0]:+.2f} to \\${gain_ci[1]:+.2f}",
+            ha="center", va="bottom", fontsize=8, color=INK2, bbox=knockout)
+
+    ax.set_yticks([])
+    _hide_left_spine(ax)
+    ax.set_xlabel("Net value of targeting minus blanket, per 1,000 (\\$)")
+    ax.set_title(f"Gain from targeting across resamples, {ARM_LABEL[arm]}")
+    safe = arm.split()[0].lower()
+    fig.savefig(FIG_DIR / f"07_uncertainty_{safe}.png")
+    plt.close(fig)
+
+
+# --------------------------------------------------------------------------- #
 # Layer 8 - Robustness & inference                                            #
 # --------------------------------------------------------------------------- #
 def layer8_robustness(df: pd.DataFrame, hte: dict) -> None:
@@ -1150,6 +1298,16 @@ def write_results_md() -> None:
     def pp(x):  # percentage-point formatter
         return f"{x*100:+.2f}pp"
 
+    def money(x, sign=False):
+        """Sign outside the currency: -$4.92, not $-4.92.
+
+        Used everywhere a bootstrap interval can run negative. `sign=True`
+        keeps an explicit + on positives, for quantities whose sign is the
+        claim being made.
+        """
+        lead = "-" if x < 0 else ("+" if sign else "")
+        return f"{lead}${abs(x):.2f}"
+
     lines = []
     lines.append("# Results — When Average Effects Lie\n")
     lines.append(
@@ -1164,10 +1322,12 @@ def write_results_md() -> None:
         return float(hit["lift_pp"].iloc[0]) if len(hit) else float("nan")
 
     wq, wp = r["uplift"][WOMENS], r["policy"][WOMENS]
+    wu = r["uncertainty"][WOMENS]
     lines.append("## Headline figures")
     lines.append(
         "_Every number the README and the write-up quote, in one place, so "
-        "there is a single thing to check them against._\n")
+        "there is a single thing to check them against. Square brackets are "
+        "95% bootstrap intervals over the reporting split (section 7)._\n")
     lines.append("| Figure | Value |")
     lines.append("|---|---|")
     lines.append(f"| Randomized trial | **{r['n_total']:,}** customers, three arms |")
@@ -1178,12 +1338,22 @@ def write_results_md() -> None:
     lines.append(f"| ...among everyone else | "
                  f"**{seg_lift(WOMENS, 'womens', 0):+.2f}pp** |")
     lines.append(f"| Qini, Women's email (reporting set, {wq['selected']}) | "
-                 f"**{wq['qini_reported']:.1f}** |")
-    # No sign on these two: they are the figures quoted verbatim elsewhere, and
-    # a leading "+" on a dollar amount reads as a typo rather than as a sign.
+                 f"**{wq['qini_reported']:.1f}** "
+                 f"[{wu['qini_ci'][0]:.1f}, {wu['qini_ci'][1]:.1f}] |")
+    # No sign on the two levels: they are the figures quoted verbatim
+    # elsewhere, and a leading "+" on a dollar amount reads as a typo rather
+    # than as a sign. The gain keeps its sign, because its sign is the claim.
     lines.append(f"| Net value, uplift-targeted | "
-                 f"**${wp['nv_targeted']:.2f}** per 1,000 |")
-    lines.append(f"| Net value, blanket | **${wp['nv_blanket']:.2f}** per 1,000 |")
+                 f"**{money(wp['nv_targeted'])}** per 1,000 "
+                 f"[{money(wu['nv_targeted_ci'][0])}, "
+                 f"{money(wu['nv_targeted_ci'][1])}] |")
+    lines.append(f"| Net value, blanket | **{money(wp['nv_blanket'])}** per 1,000 "
+                 f"[{money(wu['nv_blanket_ci'][0])}, "
+                 f"{money(wu['nv_blanket_ci'][1])}] |")
+    lines.append(f"| **Gain from targeting** | "
+                 f"**{money(wu['gain'], sign=True)}** per 1,000 "
+                 f"[{money(wu['gain_ci'][0], sign=True)}, "
+                 f"{money(wu['gain_ci'][1], sign=True)}] |")
     lines.append(f"| Contacts saved by targeting | "
                  f"**{wp['contacts_saved_per1k']:.0f}** per 1,000 |")
     lines.append("")
@@ -1265,10 +1435,12 @@ def write_results_md() -> None:
                     "figure: the optimism it was exposed to is zero here. That "
                     "is now a result rather than an assumption, which is the "
                     "point — the exposure was real either way.")
+        unc = r["uncertainty"][arm]
         lines.append(
             f"\nSelected: **{up['selected']}**. Its Qini on the untouched "
             f"reporting set — the quotable number — is "
-            f"**{up['qini_reported']:.1f}**. {tail}\n")
+            f"**{up['qini_reported']:.1f}** (95% CI "
+            f"{unc['qini_ci'][0]:.1f} to {unc['qini_ci'][1]:.1f}). {tail}\n")
 
     lines.append("## 5. Uplift modelling & cost-sensitive targeting")
     lines.append(
@@ -1282,15 +1454,26 @@ def write_results_md() -> None:
     for arm in [MENS, WOMENS]:
         up = r["uplift"][arm]
         po = r["policy"][arm]
-        targeting_wins = po["nv_targeted"] > po["nv_blanket"]
-        verdict = (f"**target the top {po['targeted_frac']:.0%}** "
-                   f"(saves {po['contacts_saved_per1k']:.0f} contacts/1,000)"
-                   if targeting_wins else
-                   "**contact broadly** — targeting adds nothing")
+        unc = r["uncertainty"][arm]
+        lo, hi = unc["gain_ci"]
+        # The verdict reads the interval, not the point estimate. A gain whose
+        # interval covers zero is not a small gain, it is an undetermined one,
+        # and "targeting adds nothing" claims more than the data supports.
+        if lo > 0:
+            verdict = (f"**target the top {po['targeted_frac']:.0%}** "
+                       f"(saves {po['contacts_saved_per1k']:.0f} contacts/1,000)")
+        elif hi < 0:
+            verdict = "**contact broadly** — targeting measurably loses money"
+        else:
+            verdict = ("**contact broadly** — the gain from targeting is not "
+                       "distinguishable from zero")
         lines.append(
             f"- **{arm}** (ranker {up['selected']}, Qini "
             f"{up['qini_reported']:.1f}): net value blanket "
-            f"${po['nv_blanket']:+.2f} vs targeted ${po['nv_targeted']:+.2f} / 1,000 "
+            f"{money(po['nv_blanket'])} vs targeted "
+            f"{money(po['nv_targeted'])} / 1,000, a gain of "
+            f"**{money(unc['gain'], sign=True)}** "
+            f"[{money(lo, sign=True)}, {money(hi, sign=True)}] "
             f"→ {verdict}.")
     lines.append("")
 
@@ -1314,7 +1497,62 @@ def write_results_md() -> None:
             f"(`figures/06_calibration_{safe}.png`).")
     lines.append("")
 
-    lines.append("## 7. Robustness")
+    lines.append("## 7. How much of this is sampling noise?")
+    lines.append(
+        f"_The reporting split is one {r['uncertainty'][WOMENS]['n_report']:,}-row "
+        f"draw. Resampling it {r['uncertainty'][WOMENS]['n_boot']:,} times, with "
+        f"the fitted scores held fixed, says what the figures above would have "
+        f"looked like on a different draw. These are intervals on the estimates "
+        f"**given this fitted model**; widening them to cover model fitting "
+        f"would mean refitting inside every resample, which is a different and "
+        f"far more expensive claim._\n")
+    lines.append("| Campaign | Qini | Net value, blanket | Net value, targeted "
+                 "| Gain | P(gain > 0) |")
+    lines.append("|---|---|---|---|---|---|")
+    for arm in [MENS, WOMENS]:
+        u = r["uncertainty"][arm]
+        lines.append(
+            f"| {arm} | {u['qini']:.1f} "
+            f"[{u['qini_ci'][0]:.1f}, {u['qini_ci'][1]:.1f}] "
+            f"| {money(u['nv_blanket'])} "
+            f"[{money(u['nv_blanket_ci'][0])}, {money(u['nv_blanket_ci'][1])}] "
+            f"| {money(u['nv_targeted'])} "
+            f"[{money(u['nv_targeted_ci'][0])}, {money(u['nv_targeted_ci'][1])}] "
+            f"| **{money(u['gain'], sign=True)}** "
+            f"[{money(u['gain_ci'][0], sign=True)}, "
+            f"{money(u['gain_ci'][1], sign=True)}] "
+            f"| {u['p_better']:.3f} |")
+    lines.append("")
+    mu, wu2 = r["uncertainty"][MENS], r["uncertainty"][WOMENS]
+    lines.append(
+        f"Two things the point estimates hid. The Men's-email Qini of "
+        f"{mu['qini']:.1f} has an interval of "
+        f"[{mu['qini_ci'][0]:.1f}, {mu['qini_ci'][1]:.1f}] — it covers zero, so "
+        f"that ranker is not merely weak, it is indistinguishable from no "
+        f"ranking at all. And its gain from targeting, "
+        f"{money(mu['gain'], sign=True)} "
+        f"[{money(mu['gain_ci'][0], sign=True)}, "
+        f"{money(mu['gain_ci'][1], sign=True)}], covers zero too: the honest reading is not "
+        f"\"targeting loses a little\" but \"this split cannot tell\". Both point "
+        f"the same way as the calibration slope of "
+        f"{r['calibration'][MENS]['slope']:.2f} — contact broadly.\n")
+    if wu2["ratio_unbounded"]:
+        lines.append(
+            f"For the Women's email the gain is real: "
+            f"{money(wu2['gain'], sign=True)} per 1,000, interval "
+            f"[{money(wu2['gain_ci'][0], sign=True)}, "
+            f"{money(wu2['gain_ci'][1], sign=True)}], "
+            f"clear of zero in {wu2['p_better']:.1%} of resamples. The **ratio** "
+            f"is not reportable, though, and it is the number a summary reaches "
+            f"for first. Targeted over blanket is "
+            f"{wu2['nv_targeted'] / wu2['nv_blanket']:.1f}x at the point "
+            f"estimate, but the blanket figure's own interval "
+            f"[{money(wu2['nv_blanket_ci'][0])}, "
+            f"{money(wu2['nv_blanket_ci'][1])}] "
+            f"covers $0, which leaves the ratio unbounded. Quote the "
+            f"difference, not the multiple.\n")
+
+    lines.append("## 8. Robustness")
     rb = r["robustness"]
     lines.append(
         f"- Randomization inference (B=2000) on the Women's-email visit effect: "
@@ -1351,6 +1589,7 @@ def main() -> None:
         art = layer6_uplift(df, arm)
         layer6b_calibration(arm, art)
         layer7_policy(arm, art)
+        layer7b_uncertainty(arm, art)
     layer8_robustness(df, hte)
     write_results_md()
 

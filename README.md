@@ -29,13 +29,20 @@ So the two campaigns need opposite playbooks:
 
 | Campaign | Avg. visit lift | Heterogeneity | Recommended policy |
 |---|---|---|---|
-| **Men's email** | **+7.66pp** `[+7.00, +8.32]` | low (interactions n.s. after FDR) | **Contact broadly** — targeting adds nothing |
-| **Women's email** | **+4.52pp** `[+3.89, +5.16]` | **high** (T×affinity p < 1e-4) | **Target the ~59%** with real affinity — **doubles** net value while sending **415 fewer contacts per 1,000** |
+| **Men's email** | **+7.66pp** `[+7.00, +8.32]` | low (interactions n.s. after FDR) | **Contact broadly** — the gain from targeting is `-$2.47 [-$9.97, +$5.23]`, indistinguishable from zero |
+| **Women's email** | **+4.52pp** `[+3.89, +5.16]` | **high** (T×affinity p < 1e-4) | **Target the ~59%** with real affinity — **+\$16.95 net value per 1,000** `[+$2.99, +$30.60]`, sending **415 fewer contacts** |
 
 Under illustrative economics ($2 / incremental visit, $0.06 / contact ⇒ 3pp
 break-even), the uplift-targeted Women's policy returns **\$33.85 vs \$16.90 per
-1,000** for blanket emailing. The qualitative call — *broad for Men's, selective
-for Women's* — holds across a wide range of those prices.
+1,000** for blanket emailing — a gain of **+\$16.95 per 1,000**, 95% bootstrap
+interval `[+$2.99, +$30.60]`, clear of zero in 99.4% of resamples. The
+qualitative call — *broad for Men's, selective for Women's* — holds across a
+wide range of those prices.
+
+Quote the difference rather than the multiple. The point estimates are 2.0×,
+but the blanket figure's own interval is `[-$4.92, +$39.15]` and covers zero,
+which leaves the ratio unbounded. "Adds \$17 per 1,000" is a claim the data
+supports; "doubles net value" is not.
 
 That's the story an interviewer remembers: not "the experiment ran clean," but
 "the average would have led you to the wrong decision, and here's the policy that
@@ -48,7 +55,7 @@ fixes it."
 ## How it's built — 8 layers
 
 The single script [`hillstrom_ab_analysis.py`](hillstrom_ab_analysis.py) runs the
-whole pipeline and writes [`RESULTS.md`](RESULTS.md) plus nine figures. Every
+whole pipeline and writes [`RESULTS.md`](RESULTS.md) plus eleven figures. Every
 number is computed from the data — nothing is hard-coded.
 
 | # | Layer | What it does | Why it matters in an interview |
@@ -59,13 +66,14 @@ number is computed from the data — nothing is hard-coded.
 | 4 | **Regression adjustment** | Lin (2013) interacted estimator, HC1 robust SE | variance reduction the right way; estimate stable ⇒ randomization confirmed |
 | 5 | **Heterogeneous effects** | subgroup CATEs + treatment×covariate interactions | **the twist** — where the average lies |
 | 6 | **Uplift modelling** | T-learner vs S-learner chosen by cross-fitted Qini, Qini curve / coefficient, uplift@k, decile calibration | individual-level treatment effects, not just averages — and a model chosen without spending the reporting split |
-| 7 | **Targeting policy value** | IPW policy value, cost-sensitive break-even threshold | converts the model into a decision with a dollar figure |
+| 7 | **Targeting policy value** | IPW policy value, cost-sensitive break-even threshold, bootstrap intervals on every dollar figure | converts the model into a decision with a dollar figure — and says how sure that figure is |
 | 8 | **Robustness & inference** | randomization inference, Benjamini-Hochberg FDR, retrospective power | the rigour that separates a real analysis from a notebook |
 
 ### Figures produced
 `01_balance_love_plot` · `02_ate_forest` · `03_hte_forest` ·
 `04_qini_mens` / `04_qini_womens` · `05_policy_mens` / `05_policy_womens` ·
-`06_calibration_mens` / `06_calibration_womens`
+`06_calibration_mens` / `06_calibration_womens` ·
+`07_uncertainty_mens` / `07_uncertainty_womens`
 
 ---
 
@@ -130,6 +138,12 @@ Open it locally by double-clicking it, or read the
   to say how good that maximum is. (Men's: T-learner, Qini 2.6 — little to
   rank. Women's: S-learner, Qini 60.4 — lots to rank.) The huge gap in Qini
   *is* the heterogeneity story in one number.
+- **Every dollar figure carries an interval.** The reporting split is one
+  14,900-row draw, so the policy numbers are resampled 2,000 times with the
+  fitted scores held fixed. That is what turns "Men's targeting loses \$2.47"
+  into the honest "`[-$9.97, +$5.23]`, this split cannot tell", and it is why
+  the Men's Qini of 2.6 is reported as `[-23.1, +29.3]` — not a weak ranker, a
+  ranker indistinguishable from none at all.
 - **Calibration, not just ranking.** Qini is invariant to any monotone
   transform of the score, so it certifies the ranking and says nothing about
   the magnitudes — and the targeting rule spends the magnitudes, comparing each
@@ -157,6 +171,11 @@ Open it locally by double-clicking it, or read the
   economic break-even. What remains is that one split supplies the Qini, the
   calibration and the dollar figures; three reads on one sample move together,
   and separating them needs another sample rather than another estimator.
+- The bootstrap intervals hold the fitted scores fixed, so they cover sampling
+  variation in the reporting split **given this model** — not variation in the
+  modelling procedure. Covering that would mean refitting inside every
+  resample, training split included, which is a different and much more
+  expensive claim than the one being made.
 - The decile the targeting rule cuts through is also the worst-calibrated one:
   mean predicted uplift 3.7pp against an observed −1.6pp [−4.8, +1.5]. Roughly
   1,500 customers in the held-out split are contacted who probably shouldn't

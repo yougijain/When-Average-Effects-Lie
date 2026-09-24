@@ -188,3 +188,76 @@ def test_select_learner_returns_a_usable_choice():
     assert sel["n"] == 3000
     # The winner is whichever cross-fitted coefficient is larger, ties to T.
     assert (sel["selected"] == "T-learner") == (sel["qini_t"] >= sel["qini_s"])
+
+
+# --------------------------------------------------------------------------- #
+# Policy value and its bootstrap                                              #
+# --------------------------------------------------------------------------- #
+def _policy_frame(n=6000, seed=0):
+    """A split where true uplift tracks the score, so targeting should pay."""
+    rng = np.random.default_rng(seed)
+    score = rng.normal(0.03, 0.05, n)          # straddles the 3pp break-even
+    t = rng.integers(0, 2, n)
+    y = (rng.random(n) < 0.10 + t * np.clip(score, 0, None)).astype(int)
+    return y, t, score
+
+
+def _breakeven_policy(score):
+    return (score > hb.COST_PER_EMAIL / hb.VALUE_PER_VISIT).astype(int)
+
+
+def test_contacting_everyone_reproduces_the_blanket_figure():
+    """The targeted arm of the estimator must reduce to blanket at policy = 1."""
+    y, t, score = _policy_frame()
+    qini, nv_blanket, nv_targeted, frac = hb._reporting_stats(
+        y, t, score, np.ones(len(y), int))
+    assert frac == 1.0
+    assert nv_targeted == pytest.approx(nv_blanket)
+
+
+def test_contacting_no_one_is_worth_nothing():
+    """Net value is measured against contacting no one, so that policy is 0."""
+    y, t, score = _policy_frame()
+    _, _, nv_targeted, frac = hb._reporting_stats(
+        y, t, score, np.zeros(len(y), int))
+    assert frac == 0.0
+    assert nv_targeted == pytest.approx(0.0)
+
+
+def test_reporting_stats_qini_agrees_with_qini_curve():
+    y, t, score = _policy_frame()
+    stats_qini = hb._reporting_stats(y, t, score, _breakeven_policy(score))[0]
+    assert stats_qini == pytest.approx(hb.qini_curve(y, t, score)[3])
+
+
+def test_targeting_pays_when_uplift_tracks_the_score():
+    y, t, score = _policy_frame()
+    _, nv_blanket, nv_targeted, frac = hb._reporting_stats(
+        y, t, score, _breakeven_policy(score))
+    assert 0.0 < frac < 1.0
+    assert nv_targeted > nv_blanket
+
+
+def test_bootstrap_centres_on_the_observed_gain():
+    """Why _reporting_stats re-reads the propensity instead of fixing it.
+
+    Resamples land with a slightly different treated share. Weighting them by
+    the design constant rather than by their own share biases each resample,
+    and the bootstrap drifts off the point estimate it is meant to describe.
+    Re-reading it keeps the distribution centred, which is what makes the
+    percentile interval mean anything.
+    """
+    y, t, score = _policy_frame()
+    pol = _breakeven_policy(score)
+    obs = hb._reporting_stats(y, t, score, pol)
+    gain_obs = obs[2] - obs[1]
+
+    rng = np.random.default_rng(3)
+    n = len(y)
+    gains = np.array([
+        (lambda s: s[2] - s[1])(
+            hb._reporting_stats(*(a[i] for a in (y, t, score, pol))))
+        for i in (rng.integers(0, n, n) for _ in range(300))
+    ])
+    assert abs(gains.mean() - gain_obs) < 0.25 * gains.std()
+    assert gains.std() > 0
