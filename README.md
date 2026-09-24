@@ -1,6 +1,10 @@
 # When Average Effects Lie
 ### Turning a routine email A/B test into a targeting strategy with causal + uplift modelling
 
+[![tests](https://github.com/yougijain/When-Average-Effects-Lie/actions/workflows/tests.yml/badge.svg)](https://github.com/yougijain/When-Average-Effects-Lie/actions/workflows/tests.yml)
+![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 **[→ Read the interactive write-up](https://yougijain.github.io/When-Average-Effects-Lie/)**
  · [Generated results](RESULTS.md) · [The analysis script](hillstrom_ab_analysis.py) · [Changelog](CHANGELOG.md)
 
@@ -33,20 +37,14 @@ So the two campaigns need opposite playbooks:
 | **Women's email** | **+4.52pp** `[+3.89, +5.16]` | **high** (T×affinity p < 1e-4) | **Target the ~59%** with real affinity — **+\$16.95 net value per 1,000** `[+$2.99, +$30.60]`, sending **415 fewer contacts** |
 
 Under illustrative economics ($2 / incremental visit, $0.06 / contact ⇒ 3pp
-break-even), the uplift-targeted Women's policy returns **\$33.85 vs \$16.90 per
-1,000** for blanket emailing — a gain of **+\$16.95 per 1,000**, 95% bootstrap
-interval `[+$2.99, +$30.60]`, clear of zero in 99.4% of resamples. The
-qualitative call — *broad for Men's, selective for Women's* — holds across a
-wide range of those prices.
+break-even), targeting the Women's send returns **\$33.85 vs \$16.90 per 1,000**
+blanket — a gain of **+\$16.95**, 95% bootstrap interval `[+$2.99, +$30.60]`,
+clear of zero in 99.4% of resamples. The qualitative call holds across a wide
+range of those prices.
 
-Quote the difference rather than the multiple. The point estimates are 2.0×,
-but the blanket figure's own interval is `[-$4.92, +$39.15]` and covers zero,
-which leaves the ratio unbounded. "Adds \$17 per 1,000" is a claim the data
-supports; "doubles net value" is not.
-
-That's the story an interviewer remembers: not "the experiment ran clean," but
-"the average would have led you to the wrong decision, and here's the policy that
-fixes it."
+Taken at face value, the average keeps the Women's email going to the 41% of
+the list it doesn't move — a segment whose realized lift is +0.95pp against a
+3.0pp break-even.
 
 ![HTE forest plot](figures/03_hte_forest.png)
 
@@ -58,16 +56,16 @@ The single script [`hillstrom_ab_analysis.py`](hillstrom_ab_analysis.py) runs th
 whole pipeline and writes [`RESULTS.md`](RESULTS.md) plus eleven figures. Every
 number is computed from the data — nothing is hard-coded.
 
-| # | Layer | What it does | Why it matters in an interview |
+| # | Layer | What it does | Why it's in the pipeline |
 |---|---|---|---|
-| 1 | **Load & validate** | shape, missingness, arm sizes, base rates | shows you check data before trusting it |
-| 2 | **Randomization checks** | covariate balance (SMD love plot), omnibus assignment test | proves causal claims are *earned*, not assumed (max \|SMD\| = 0.009, omnibus p = 0.76) |
-| 3 | **Average treatment effect** | diff-in-proportions + Wald CIs; bootstrap for spend | the "textbook" A/B result everyone expects |
-| 4 | **Regression adjustment** | Lin (2013) interacted estimator, HC1 robust SE | variance reduction the right way; estimate stable ⇒ randomization confirmed |
+| 1 | **Load & validate** | shape, missingness, arm sizes, base rates | nothing downstream is trusted before the file is |
+| 2 | **Randomization checks** | covariate balance (SMD love plot), omnibus assignment test | the causal claims are earned rather than assumed (max \|SMD\| = 0.009, omnibus p = 0.76) |
+| 3 | **Average treatment effect** | diff-in-proportions + Wald CIs; bootstrap for spend | the textbook A/B answer — and the one that turns out to mislead |
+| 4 | **Regression adjustment** | Lin (2013) interacted estimator, HC1 robust SE | tightens the CI without moving the point estimate; its stability re-confirms randomization |
 | 5 | **Heterogeneous effects** | subgroup CATEs + treatment×covariate interactions | **the twist** — where the average lies |
 | 6 | **Uplift modelling** | T-learner vs S-learner chosen by cross-fitted Qini, Qini curve / coefficient, uplift@k, decile calibration | individual-level treatment effects, not just averages — and a model chosen without spending the reporting split |
 | 7 | **Targeting policy value** | IPW policy value, cost-sensitive break-even threshold, bootstrap intervals on every dollar figure | converts the model into a decision with a dollar figure — and says how sure that figure is |
-| 8 | **Robustness & inference** | randomization inference, Benjamini-Hochberg FDR, retrospective power | the rigour that separates a real analysis from a notebook |
+| 8 | **Robustness & inference** | randomization inference, Benjamini-Hochberg FDR, retrospective power | the headline should not depend on one distributional assumption or one lucky split |
 
 ### Figures produced
 `01_balance_love_plot` · `02_ate_forest` · `03_hte_forest` ·
@@ -162,6 +160,10 @@ Open it locally by double-clicking it, or read the
   parametric p-values for the primary effect (permutation p = 0.0000).
 
 ## Honest limitations
+- **Quote the difference, not the multiple.** The point estimates put targeted
+  net value at 2.0× blanket, but the blanket figure's own interval is
+  `[-$4.92, +$39.15]` and covers zero, which leaves the ratio unbounded. "Adds
+  \$17 per 1,000" is supported; "doubles net value" is not.
 - The dollar figures in Layer 7 are **illustrative assumptions**, not Hillstrom's
   real margins — they exist to demonstrate cost-sensitive targeting. The
   *qualitative* recommendation is robust to the exact prices.
@@ -192,16 +194,6 @@ Open it locally by double-clicking it, or read the
   and its segment, channel, zip type, tenure — so there is no unused feature
   left to add; purchase *frequency* simply isn't in the file. Sharpening the
   policy means features from outside this dataset, not better use of it.
-
----
-
-## Why a psychology background is an asset here
-Experimental design *is* the psychology research toolkit: randomization and
-covariate balance, moderation/interaction effects (the women's-email × affinity
-finding is textbook moderation), novelty/behavioural heterogeneity, multiple-
-comparison discipline, and pre-registration logic. The hard part of causal data
-science isn't the estimator — it's the experimental reasoning about what the
-number *means*, which is exactly what an experimental-psych training drills.
 
 ---
 
