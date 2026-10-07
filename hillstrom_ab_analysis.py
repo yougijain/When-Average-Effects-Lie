@@ -58,7 +58,7 @@ from scipy import stats
 
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder
-from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
 from sklearn.model_selection import StratifiedKFold, train_test_split
 
 
@@ -111,6 +111,11 @@ PRIMARY_OUTCOME = "visit"  # highest base-rate => most statistical power
 # never share a row: see _select_learner.
 REPORT_FRAC = 0.35
 N_SELECT_FOLDS = 5
+
+# Folds used to cross-fit the DR-learner's outcome nuisances. Separate from
+# N_SELECT_FOLDS: that one chooses between learners, this one is internal to
+# one of them.
+N_NUISANCE_FOLDS = 5
 
 # Deciles of predicted uplift for the calibration check in Layer 6b.
 N_CALIB_BINS = 10
@@ -711,6 +716,57 @@ def _fit_learners(train_df: pd.DataFrame, score_df: pd.DataFrame) -> dict:
     score_s = s_model.predict_proba(X1)[:, 1] - s_model.predict_proba(X0)[:, 1]
 
     return {"T-learner": score_t, "S-learner": score_s}
+
+
+def dr_pseudo_outcome(y, t, mu1, mu0, p):
+    """Augmented inverse-propensity (AIPW) pseudo-outcome for each row.
+
+    Its conditional mean given X is the treatment effect tau(X), so regressing
+    it on X estimates uplift directly rather than as the difference of two
+    outcome models. Its unconditional mean estimates the ATE, which is what
+    makes it straightforward to test.
+
+    The estimator is "doubly robust": it stays unbiased if *either* the outcome
+    models or the propensity is right. In a randomized trial the propensity is
+    known exactly, so that half is free and the robustness costs nothing. What
+    the outcome models buy here is variance: get them roughly right and the
+    residual terms shrink, which is the whole reason to prefer this over plain
+    inverse-propensity weighting.
+    """
+    return mu1 - mu0 + t * (y - mu1) / p - (1 - t) * (y - mu0) / (1 - p)
+
+
+def _dr_learner_scores(train_df: pd.DataFrame, score_df: pd.DataFrame):
+    """DR-learner (Kennedy 2020): cross-fit nuisances, then regress on X.
+
+    The nuisances are cross-fitted so no row's pseudo-outcome is built from a
+    model that saw that row. Skipping this is the usual way a DR-learner goes
+    wrong: the outcome models overfit, their residuals shrink toward zero on
+    their own training rows, and the pseudo-outcome quietly collapses back to
+    the plug-in difference it was supposed to improve on.
+    """
+    enc = _make_encoder(train_df)
+    Xtr = enc.transform(train_df[COVARIATES])
+    Xsc = enc.transform(score_df[COVARIATES])
+    y = train_df[PRIMARY_OUTCOME].values
+    t = train_df["T"].values
+    p = t.mean()   # randomized assignment, so this is known rather than modelled
+
+    mu1 = np.empty(len(train_df))
+    mu0 = np.empty(len(train_df))
+    folds = StratifiedKFold(n_splits=N_NUISANCE_FOLDS, shuffle=True, random_state=SEED)
+    for fit_idx, held_idx in folds.split(Xtr, t * 2 + y):
+        Xf, yf, tf = Xtr[fit_idx], y[fit_idx], t[fit_idx]
+        m1 = HistGradientBoostingClassifier(random_state=SEED).fit(Xf[tf == 1], yf[tf == 1])
+        m0 = HistGradientBoostingClassifier(random_state=SEED).fit(Xf[tf == 0], yf[tf == 0])
+        mu1[held_idx] = m1.predict_proba(Xtr[held_idx])[:, 1]
+        mu0[held_idx] = m0.predict_proba(Xtr[held_idx])[:, 1]
+
+    psi = dr_pseudo_outcome(y, t, mu1, mu0, p)
+    # Second stage is a regressor, not a classifier: the pseudo-outcome is a
+    # continuous signed quantity, not a label.
+    final = HistGradientBoostingRegressor(random_state=SEED).fit(Xtr, psi)
+    return final.predict(Xsc)
 
 
 def _select_learner(train: pd.DataFrame) -> dict:

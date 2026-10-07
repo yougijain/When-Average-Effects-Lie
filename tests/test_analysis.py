@@ -308,3 +308,55 @@ def test_social_card_fails_loudly_if_the_headline_table_moves():
     card.WANTED = dict(card.WANTED, ate="A row that does not exist")
     with pytest.raises(SystemExit, match="would go stale silently"):
         card.read_headline_figures()
+
+
+# --------------------------------------------------------------------------- #
+# DR-learner                                                                  #
+# --------------------------------------------------------------------------- #
+def _aipw_frame(n=20000, seed=0, ate=0.20):
+    """A randomized trial with a known ATE and covariate-dependent baseline."""
+    rng = np.random.default_rng(seed)
+    x = rng.random(n)
+    t = (rng.random(n) < 0.5).astype(int)
+    base = 0.15 + 0.5 * x                      # baseline varies a lot with x
+    y = (rng.random(n) < base + t * ate).astype(int)
+    return y, t, x, base
+
+
+def test_pseudo_outcome_mean_estimates_the_ate():
+    y, t, x, base = _aipw_frame()
+    mu1, mu0 = base + 0.20, base               # correct outcome models
+    psi = hb.dr_pseudo_outcome(y, t, mu1, mu0, p=t.mean())
+    assert psi.mean() == pytest.approx(0.20, abs=0.01)
+
+
+def test_pseudo_outcome_stays_unbiased_when_the_outcome_models_are_wrong():
+    """The 'doubly' in doubly robust, and the reason it suits a randomized trial.
+
+    The propensity here is known exactly, so the estimator must survive outcome
+    models that are pure nonsense. If this ever fails, the augmentation terms
+    have the wrong sign or the wrong denominator, which is the likeliest way to
+    get this formula subtly wrong.
+    """
+    y, t, x, base = _aipw_frame()
+    nonsense1 = np.full(len(y), 0.9)
+    nonsense0 = np.full(len(y), 0.1)
+    psi = hb.dr_pseudo_outcome(y, t, nonsense1, nonsense0, p=t.mean())
+    assert psi.mean() == pytest.approx(0.20, abs=0.02)
+
+
+def test_good_nuisances_buy_precision_not_correctness():
+    """Both are unbiased; the point of the outcome models is a tighter estimate."""
+    y, t, x, base = _aipw_frame()
+    p = t.mean()
+    good = hb.dr_pseudo_outcome(y, t, base + 0.20, base, p)
+    bad = hb.dr_pseudo_outcome(y, t, np.zeros(len(y)), np.zeros(len(y)), p)
+    assert good.mean() == pytest.approx(bad.mean(), abs=0.03)
+    assert good.std() < bad.std()
+
+
+def test_dr_learner_scores_every_row():
+    df = _learner_frame()
+    scores = hb._dr_learner_scores(df.iloc[:2000], df.iloc[2000:])
+    assert scores.shape == (1000,)
+    assert np.isfinite(scores).all()
