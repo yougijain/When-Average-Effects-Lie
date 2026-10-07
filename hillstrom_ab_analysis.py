@@ -136,6 +136,9 @@ COST_PER_EMAIL = 0.06    # $ fully-loaded cost of one contact (send + list fatig
 # this value too, so chart and prose share one blue.
 PAPER, INK, INK2, INK3, RULE = "#fdfdfb", "#1b1b1a", "#4a4a46", "#6f6f68", "#d8d6cf"
 BLUE, RUST = "#1a5e94", "#b4561f"
+# One colour per uplift candidate, fixed here so a learner keeps its colour
+# across every figure it appears in.
+LEARNER_COLOUR = {"T-learner": BLUE, "S-learner": RUST}
 DASH = (0, (4, 3))                       # for threshold / reference lines only
 DOT = (0, (1, 2.5))                      # second reference style, where DASH is taken
 FONT_FILE = ROOT / "fonts" / "SourceSerif4-normal.ttf"
@@ -678,12 +681,15 @@ def uplift_at_k(y, treat, score, k=0.30):
     return yt.mean() - yc.mean()
 
 
-def _fit_learners(train_df: pd.DataFrame, score_df: pd.DataFrame):
-    """Fit a T-learner and an S-learner on `train_df`, score `score_df` with both.
+def _fit_learners(train_df: pd.DataFrame, score_df: pd.DataFrame) -> dict:
+    """Fit every candidate learner on `train_df` and score `score_df` with each.
 
-    Both get the same features and the same estimator, so the only thing being
-    compared is how treatment enters: two separate outcome models, or one model
-    with treatment as a feature.
+    Returns {learner name: uplift score per row of score_df}. All candidates
+    get the same features and the same base estimator, so the only thing being
+    compared is how each one gets at the treatment effect.
+
+    Insertion order is the tie-break order: _select_learner takes the first
+    maximum, so a candidate listed earlier wins a tie.
     """
     enc = _make_encoder(train_df)
     Xtr = enc.transform(train_df[COVARIATES])
@@ -691,19 +697,20 @@ def _fit_learners(train_df: pd.DataFrame, score_df: pd.DataFrame):
     ytr = train_df[PRIMARY_OUTCOME].values
     ttr = train_df["T"].values
 
-    # --- T-learner (two-model) ---
+    # --- T-learner: two outcome models, uplift is their difference ---
     m_t = HistGradientBoostingClassifier(random_state=SEED).fit(Xtr[ttr == 1], ytr[ttr == 1])
     m_c = HistGradientBoostingClassifier(random_state=SEED).fit(Xtr[ttr == 0], ytr[ttr == 0])
     score_t = m_t.predict_proba(Xsc)[:, 1] - m_c.predict_proba(Xsc)[:, 1]
 
-    # --- S-learner (single model with treatment as a feature) ---
+    # --- S-learner: one model with treatment as a feature, flipped on and off ---
     s_model = HistGradientBoostingClassifier(random_state=SEED).fit(
         np.column_stack([Xtr, ttr]), ytr
     )
     X1 = np.column_stack([Xsc, np.ones(len(Xsc))])
     X0 = np.column_stack([Xsc, np.zeros(len(Xsc))])
     score_s = s_model.predict_proba(X1)[:, 1] - s_model.predict_proba(X0)[:, 1]
-    return score_t, score_s
+
+    return {"T-learner": score_t, "S-learner": score_s}
 
 
 def _select_learner(train: pd.DataFrame) -> dict:
@@ -723,23 +730,17 @@ def _select_learner(train: pd.DataFrame) -> dict:
     """
     y = train[PRIMARY_OUTCOME].values
     t = train["T"].values
-    oof_t = np.empty(len(train))
-    oof_s = np.empty(len(train))
+    oof = {}
     # Stratify on the (arm, outcome) pair, not on the arm alone: at a 14.7%
     # base rate, arm-only folds end up with visibly different positive counts.
     folds = StratifiedKFold(n_splits=N_SELECT_FOLDS, shuffle=True, random_state=SEED)
     for fit_idx, held_idx in folds.split(train, t * 2 + y):
-        oof_t[held_idx], oof_s[held_idx] = _fit_learners(
-            train.iloc[fit_idx], train.iloc[held_idx]
-        )
-    coef_t = qini_curve(y, t, oof_t)[3]
-    coef_s = qini_curve(y, t, oof_s)[3]
-    return {
-        "qini_t": coef_t,
-        "qini_s": coef_s,
-        "selected": "T-learner" if coef_t >= coef_s else "S-learner",
-        "n": len(train),
-    }
+        fold_scores = _fit_learners(train.iloc[fit_idx], train.iloc[held_idx])
+        for name, score in fold_scores.items():
+            oof.setdefault(name, np.empty(len(train)))[held_idx] = score
+    qini = {name: qini_curve(y, t, score)[3] for name, score in oof.items()}
+    # max() returns the first maximum, so candidate order breaks ties.
+    return {"qini": qini, "selected": max(qini, key=qini.get), "n": len(train)}
 
 
 def layer6_uplift(df: pd.DataFrame, arm: str) -> dict:
@@ -754,64 +755,63 @@ def layer6_uplift(df: pd.DataFrame, arm: str) -> dict:
     # 1. Choose the learner without touching the reporting set.
     sel = _select_learner(train)
 
-    # 2. Refit both on the full training portion and score the reporting set
-    #    once. Both are scored so the optimism of same-set selection can be
-    #    quantified rather than asserted.
-    score_t, score_s = _fit_learners(train, report)
+    # 2. Refit every candidate on the full training portion and score the
+    #    reporting set once. All of them are scored, not just the winner, so
+    #    the optimism of same-set selection can be quantified rather than
+    #    asserted.
+    scores = _fit_learners(train, report)
     yte = report[PRIMARY_OUTCOME].values
     tte = report["T"].values
 
-    frac_t, qini_t, rand_t, coef_t = qini_curve(yte, tte, score_t)
-    _, qini_s, _, coef_s = qini_curve(yte, tte, score_s)
-    u30_t = uplift_at_k(yte, tte, score_t, 0.30)
-    u30_s = uplift_at_k(yte, tte, score_s, 0.30)
+    curves, coef, u30 = {}, {}, {}
+    frac = rand = None
+    for name, score in scores.items():
+        frac, curves[name], rand, coef[name] = qini_curve(yte, tte, score)
+        u30[name] = uplift_at_k(yte, tte, score, 0.30)
 
     chosen = sel["selected"]
-    score_best = score_t if chosen == "T-learner" else score_s
-    reported = coef_t if chosen == "T-learner" else coef_s
-    naive = max(coef_t, coef_s)       # what same-set selection would have quoted
+    score_best = scores[chosen]
+    reported = coef[chosen]
+    naive = max(coef.values())    # what same-set selection would have quoted
     optimism = naive - reported
 
-    per_k = lambda coef, n: coef / n * 1000
+    per_k = lambda c, n: c / n * 1000
     overall = yte[tte == 1].mean() - yte[tte == 0].mean()
+    width = max(len(n) for n in scores)
     print(f"  reporting set       : {len(report):,} rows "
           f"({tte.sum():,} treated / {(1 - tte).sum():,} control)")
     print(f"  overall test uplift : {overall * 100:+.3f}pp")
     print(f"  selection ({N_SELECT_FOLDS}-fold out-of-fold, {sel['n']:,} training rows):")
-    print(f"    T-learner Qini    : {sel['qini_t']:8.2f}  "
-          f"({per_k(sel['qini_t'], sel['n']):.2f} per 1,000)")
-    print(f"    S-learner Qini    : {sel['qini_s']:8.2f}  "
-          f"({per_k(sel['qini_s'], sel['n']):.2f} per 1,000)")
+    for name, c in sel["qini"].items():
+        print(f"    {name:<{width}} Qini : {c:8.2f}  "
+              f"({per_k(c, sel['n']):.2f} per 1,000)")
     print(f"    -> selected       : {chosen}")
     print(f"  reporting (untouched {len(report):,} rows):")
-    print(f"    T-learner Qini    : {coef_t:8.2f}  "
-          f"({per_k(coef_t, len(report)):.2f} per 1,000)   "
-          f"uplift@30% = {u30_t * 100:+.3f}pp")
-    print(f"    S-learner Qini    : {coef_s:8.2f}  "
-          f"({per_k(coef_s, len(report)):.2f} per 1,000)   "
-          f"uplift@30% = {u30_s * 100:+.3f}pp")
+    for name in scores:
+        print(f"    {name:<{width}} Qini : {coef[name]:8.2f}  "
+              f"({per_k(coef[name], len(report)):.2f} per 1,000)   "
+              f"uplift@30% = {u30[name] * 100:+.3f}pp")
     print(f"  REPORTED Qini ({chosen}, selected elsewhere) : {reported:.2f}")
     print(f"  same-set selection would have quoted        : {naive:.2f}  "
           f"(winner's curse {optimism:+.2f})")
 
     REPORT.setdefault("uplift", {})[arm] = {
-        "qini_sel_t": sel["qini_t"], "qini_sel_s": sel["qini_s"],
-        "n_select": sel["n"],
-        "qini_t": coef_t, "qini_s": coef_s, "n_report": len(report),
-        "u30_t": u30_t, "u30_s": u30_s,
+        "qini_select": sel["qini"], "n_select": sel["n"],
+        "qini_report": coef, "n_report": len(report),
+        "uplift_at_30": u30,
         "overall_test_uplift": overall,
         "selected": chosen, "qini_reported": reported,
         "qini_naive": naive, "optimism": optimism,
     }
-    _plot_qini(arm, frac_t, qini_t, rand_t, qini_s, chosen)
+    _plot_qini(arm, frac, curves, rand, chosen)
     return {
-        "report": report, "score_t": score_t, "score_s": score_s,
+        "report": report, "scores": scores,
         "score_best": score_best, "selected": chosen,
         "yte": yte, "tte": tte, "qini_reported": reported,
     }
 
 
-def _plot_qini(arm, frac, qini_t, rand, qini_s, chosen) -> None:
+def _plot_qini(arm, frac, curves, rand, chosen) -> None:
     fig, ax = plt.subplots(figsize=(6.4, 4.4))
     ax.grid(axis="y")
     ax.plot(frac, rand, color=INK3, lw=0.9, ls=DASH, label="Random targeting")
@@ -819,8 +819,8 @@ def _plot_qini(arm, frac, qini_t, rand, qini_s, chosen) -> None:
     # "whichever curve is higher here is the one we shipped" - it was chosen on
     # other data, and on this set it need not be the higher curve.
     mark = lambda name: f"{name} (selected)" if name == chosen else name
-    ax.plot(frac, qini_t, color=BLUE, label=mark("T-learner"))
-    ax.plot(frac, qini_s, color=RUST, label=mark("S-learner"))
+    for name, curve in curves.items():
+        ax.plot(frac, curve, color=LEARNER_COLOUR[name], label=mark(name))
     ax.set_xlim(0, 1)
     ax.set_ylim(bottom=0)
     ax.xaxis.set_major_formatter(PercentFormatter(1.0, decimals=0))
@@ -1406,29 +1406,31 @@ def write_results_md() -> None:
     lines.append("")
 
     lines.append("## 4. Choosing the uplift learner without the reporting set")
+    candidates = list(r["uplift"][WOMENS]["qini_select"])
+    named = " / ".join(candidates)
     lines.append(
-        f"_The T-learner / S-learner choice is made by cross-fitted Qini on the "
-        f"training portion ({N_SELECT_FOLDS}-fold, every row scored by models "
-        f"that never saw it). The reporting set is not consulted. Qini is in "
-        f"incremental visits and scales with the size of the set it is computed "
-        f"on, so the per-1,000 figure is what compares across the two columns._\n")
+        f"_The {named} choice is made by cross-fitted Qini on the training "
+        f"portion ({N_SELECT_FOLDS}-fold, every row scored by models that never "
+        f"saw it). The reporting set is not consulted. Qini is in incremental "
+        f"visits and scales with the size of the set it is computed on, so the "
+        f"per-1,000 figure is what compares across the two columns._\n")
     for arm in [MENS, WOMENS]:
         up = r["uplift"][arm]
         lines.append(f"**{arm}**\n")
         lines.append(f"| Learner | Selection set (out-of-fold, n={up['n_select']:,}) "
                      f"| Reporting set (untouched, n={up['n_report']:,}) |")
         lines.append("|---|---|---|")
-        for name, ks, kr in [("T-learner", "qini_sel_t", "qini_t"),
-                             ("S-learner", "qini_sel_s", "qini_s")]:
+        for name, sel_q in up["qini_select"].items():
+            rep_q = up["qini_report"][name]
             lines.append(
-                f"| {name} | {up[ks]:.1f} "
-                f"({up[ks] / up['n_select'] * 1000:.2f} per 1,000) | {up[kr]:.1f} "
-                f"({up[kr] / up['n_report'] * 1000:.2f} per 1,000) |")
+                f"| {name} | {sel_q:.1f} "
+                f"({sel_q / up['n_select'] * 1000:.2f} per 1,000) | {rep_q:.1f} "
+                f"({rep_q / up['n_report'] * 1000:.2f} per 1,000) |")
         if up["optimism"] > 0.05:
             tail = (f"Choosing on the reporting set, as this script used to do, "
                     f"would have quoted **{up['qini_naive']:.1f}** instead, "
-                    f"**{up['optimism']:+.1f}** of winner's curse over two "
-                    f"candidates.")
+                    f"**{up['optimism']:+.1f}** of winner's curse over "
+                    f"{len(up['qini_select'])} candidates.")
         else:
             tail = ("Choosing on the reporting set, as this script used to do, "
                     "would have picked the same learner and quoted the same "

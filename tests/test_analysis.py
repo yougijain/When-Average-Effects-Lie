@@ -174,20 +174,32 @@ def _learner_frame(n=3000, seed=0):
     return df
 
 
-def test_fit_learners_scores_every_row_of_the_scoring_frame():
+def test_fit_learners_scores_every_row_with_every_candidate():
     df = _learner_frame()
     train, score = df.iloc[:2000], df.iloc[2000:]
-    score_t, score_s = hb._fit_learners(train, score)
-    assert score_t.shape == score_s.shape == (len(score),)
-    assert np.isfinite(score_t).all() and np.isfinite(score_s).all()
+    scores = hb._fit_learners(train, score)
+    assert set(scores) == set(hb.LEARNER_COLOUR), "a candidate has no plot colour"
+    for name, s in scores.items():
+        assert s.shape == (len(score),), name
+        assert np.isfinite(s).all(), name
 
 
-def test_select_learner_returns_a_usable_choice():
+def test_select_learner_returns_the_best_candidate():
     sel = hb._select_learner(_learner_frame())
-    assert sel["selected"] in {"T-learner", "S-learner"}
+    assert set(sel["qini"]) == set(hb.LEARNER_COLOUR)
     assert sel["n"] == 3000
-    # The winner is whichever cross-fitted coefficient is larger, ties to T.
-    assert (sel["selected"] == "T-learner") == (sel["qini_t"] >= sel["qini_s"])
+    assert sel["selected"] == max(sel["qini"], key=sel["qini"].get)
+
+
+def test_selection_breaks_ties_by_candidate_order():
+    """max() takes the first maximum, so the order _fit_learners returns wins.
+
+    Worth pinning: a tie is the one case where the choice is arbitrary, and it
+    should stay arbitrary in a documented direction rather than shifting with
+    dict iteration details.
+    """
+    tied = {"T-learner": 5.0, "S-learner": 5.0}
+    assert max(tied, key=tied.get) == "T-learner"
 
 
 # --------------------------------------------------------------------------- #
