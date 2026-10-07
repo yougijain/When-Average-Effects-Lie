@@ -63,7 +63,7 @@ number is computed from the data — nothing is hard-coded.
 | 3 | **Average treatment effect** | diff-in-proportions + Wald CIs; bootstrap for spend | the textbook A/B answer, and the one that turns out to mislead |
 | 4 | **Regression adjustment** | Lin (2013) interacted estimator, HC1 robust SE | tightens the CI without moving the point estimate; its stability re-confirms randomization |
 | 5 | **Heterogeneous effects** | subgroup CATEs + treatment×covariate interactions | **the twist** — where the average lies |
-| 6 | **Uplift modelling** | T-learner vs S-learner chosen by cross-fitted Qini, Qini curve / coefficient, uplift@k, decile calibration | individual-level treatment effects rather than averages, from a model chosen without spending the reporting split |
+| 6 | **Uplift modelling** | T-, S- and DR-learners chosen by cross-fitted Qini, Qini curve / coefficient, uplift@k, decile calibration | individual-level treatment effects rather than averages, from a model chosen without spending the reporting split |
 | 7 | **Targeting policy value** | IPW policy value, cost-sensitive break-even threshold, bootstrap intervals on every dollar figure | converts the model into a decision with a dollar figure, and says how sure that figure is |
 | 8 | **Robustness & inference** | randomization inference, Benjamini-Hochberg FDR, retrospective power | the headline should not depend on one distributional assumption or one lucky split |
 
@@ -131,13 +131,21 @@ Open it locally by double-clicking it, or read the
 - **Primary outcome = `visit`.** Highest base rate (~14.7%), so the most
   statistical power. `conversion` (~0.9%) and `spend` are reported too, but the
   decision rests on the well-powered metric.
-- **T-learner *and* S-learner, chosen off the reporting split.** Both are
-  reported, and the choice between them is made by 5-fold cross-fitted Qini on
-  the training portion, every row scored by models that never saw it, so the
-  reporting split is never asked both to pick the maximum of two candidates and
-  to say how good that maximum is. (Men's: T-learner, Qini 2.6, little to
-  rank. Women's: S-learner, Qini 60.4, lots to rank.) The huge gap in Qini
-  *is* the heterogeneity story in one number.
+- **Three learners, chosen off the reporting split.** A T-learner, an
+  S-learner and a DR-learner (AIPW pseudo-outcome regressed on the covariates,
+  nuisances cross-fitted). All three are reported, and the choice between them
+  is made by 5-fold cross-fitted Qini on the training portion, every row scored
+  by models that never saw it, so the reporting split is never asked both to
+  pick the maximum of three candidates and to say how good that maximum is.
+  (Men's: T-learner, Qini 2.6, little to rank. Women's: S-learner, Qini 60.4,
+  lots to rank.) The huge gap in Qini *is* the heterogeneity story in one
+  number.
+- **The winner's curse is measured, not assumed.** On the Men's arm the
+  DR-learner ranks worst of the three out-of-fold and best of the three on the
+  reporting split, so selecting there would quote **19.3** where the honest
+  figure is **2.6** — 16.7 Qini points of optimism. That arm has no real signal
+  to rank, so all three candidates are fitting noise, and the maximum of three
+  noise draws sits further out than the maximum of two.
 - **Every dollar figure carries an interval.** The reporting split is one
   14,900-row draw, so the policy numbers are resampled 2,000 times with the
   fitted scores held fixed. That is what turns "Men's targeting loses \$2.47"
