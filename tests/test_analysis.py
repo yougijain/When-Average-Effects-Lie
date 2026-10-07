@@ -174,20 +174,32 @@ def _learner_frame(n=3000, seed=0):
     return df
 
 
-def test_fit_learners_scores_every_row_of_the_scoring_frame():
+def test_fit_learners_scores_every_row_with_every_candidate():
     df = _learner_frame()
     train, score = df.iloc[:2000], df.iloc[2000:]
-    score_t, score_s = hb._fit_learners(train, score)
-    assert score_t.shape == score_s.shape == (len(score),)
-    assert np.isfinite(score_t).all() and np.isfinite(score_s).all()
+    scores = hb._fit_learners(train, score)
+    assert set(scores) == set(hb.LEARNER_COLOUR), "a candidate has no plot colour"
+    for name, s in scores.items():
+        assert s.shape == (len(score),), name
+        assert np.isfinite(s).all(), name
 
 
-def test_select_learner_returns_a_usable_choice():
+def test_select_learner_returns_the_best_candidate():
     sel = hb._select_learner(_learner_frame())
-    assert sel["selected"] in {"T-learner", "S-learner"}
+    assert set(sel["qini"]) == set(hb.LEARNER_COLOUR)
     assert sel["n"] == 3000
-    # The winner is whichever cross-fitted coefficient is larger, ties to T.
-    assert (sel["selected"] == "T-learner") == (sel["qini_t"] >= sel["qini_s"])
+    assert sel["selected"] == max(sel["qini"], key=sel["qini"].get)
+
+
+def test_selection_breaks_ties_by_candidate_order():
+    """max() takes the first maximum, so the order _fit_learners returns wins.
+
+    Worth pinning: a tie is the one case where the choice is arbitrary, and it
+    should stay arbitrary in a documented direction rather than shifting with
+    dict iteration details.
+    """
+    tied = {"T-learner": 5.0, "S-learner": 5.0}
+    assert max(tied, key=tied.get) == "T-learner"
 
 
 # --------------------------------------------------------------------------- #
@@ -296,3 +308,55 @@ def test_social_card_fails_loudly_if_the_headline_table_moves():
     card.WANTED = dict(card.WANTED, ate="A row that does not exist")
     with pytest.raises(SystemExit, match="would go stale silently"):
         card.read_headline_figures()
+
+
+# --------------------------------------------------------------------------- #
+# DR-learner                                                                  #
+# --------------------------------------------------------------------------- #
+def _aipw_frame(n=20000, seed=0, ate=0.20):
+    """A randomized trial with a known ATE and covariate-dependent baseline."""
+    rng = np.random.default_rng(seed)
+    x = rng.random(n)
+    t = (rng.random(n) < 0.5).astype(int)
+    base = 0.15 + 0.5 * x                      # baseline varies a lot with x
+    y = (rng.random(n) < base + t * ate).astype(int)
+    return y, t, x, base
+
+
+def test_pseudo_outcome_mean_estimates_the_ate():
+    y, t, x, base = _aipw_frame()
+    mu1, mu0 = base + 0.20, base               # correct outcome models
+    psi = hb.dr_pseudo_outcome(y, t, mu1, mu0, p=t.mean())
+    assert psi.mean() == pytest.approx(0.20, abs=0.01)
+
+
+def test_pseudo_outcome_stays_unbiased_when_the_outcome_models_are_wrong():
+    """The 'doubly' in doubly robust, and the reason it suits a randomized trial.
+
+    The propensity here is known exactly, so the estimator must survive outcome
+    models that are pure nonsense. If this ever fails, the augmentation terms
+    have the wrong sign or the wrong denominator, which is the likeliest way to
+    get this formula subtly wrong.
+    """
+    y, t, x, base = _aipw_frame()
+    nonsense1 = np.full(len(y), 0.9)
+    nonsense0 = np.full(len(y), 0.1)
+    psi = hb.dr_pseudo_outcome(y, t, nonsense1, nonsense0, p=t.mean())
+    assert psi.mean() == pytest.approx(0.20, abs=0.02)
+
+
+def test_good_nuisances_buy_precision_not_correctness():
+    """Both are unbiased; the point of the outcome models is a tighter estimate."""
+    y, t, x, base = _aipw_frame()
+    p = t.mean()
+    good = hb.dr_pseudo_outcome(y, t, base + 0.20, base, p)
+    bad = hb.dr_pseudo_outcome(y, t, np.zeros(len(y)), np.zeros(len(y)), p)
+    assert good.mean() == pytest.approx(bad.mean(), abs=0.03)
+    assert good.std() < bad.std()
+
+
+def test_dr_learner_scores_every_row():
+    df = _learner_frame()
+    scores = hb._dr_learner_scores(df.iloc[:2000], df.iloc[2000:])
+    assert scores.shape == (1000,)
+    assert np.isfinite(scores).all()

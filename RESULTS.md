@@ -38,7 +38,7 @@ Regression adjustment (Lin 2013) left the point estimates essentially unchanged 
 - **Womens E-Mail** × prior women's-merch buyer: **+7.31pp** (yes) vs **+1.11pp** (no); gap 6.20pp.
 
 ## 4. Choosing the uplift learner without the reporting set
-_The T-learner / S-learner choice is made by cross-fitted Qini on the training portion (5-fold, every row scored by models that never saw it). The reporting set is not consulted. Qini is in incremental visits and scales with the size of the set it is computed on, so the per-1,000 figure is what compares across the two columns._
+_The T-learner / S-learner / DR-learner choice is made by cross-fitted Qini on the training portion (5-fold, every row scored by models that never saw it). The reporting set is not consulted. Qini is in incremental visits and scales with the size of the set it is computed on, so the per-1,000 figure is what compares across the two columns._
 
 **Mens E-Mail**
 
@@ -46,8 +46,9 @@ _The T-learner / S-learner choice is made by cross-fitted Qini on the training p
 |---|---|---|
 | T-learner | 2.7 (0.10 per 1,000) | 2.6 (0.17 per 1,000) |
 | S-learner | 0.3 (0.01 per 1,000) | 1.7 (0.11 per 1,000) |
+| DR-learner | -2.7 (-0.10 per 1,000) | 19.3 (1.29 per 1,000) |
 
-Selected: **T-learner**. Its Qini on the untouched reporting set, the quotable number, is **2.6** (95% CI -23.1 to 29.3). Choosing on the reporting set, as this script used to do, would have picked the same learner and quoted the same figure: the optimism it was exposed to is zero here. That is now a result rather than an assumption, which is the point. The exposure was real either way.
+Selected: **T-learner**. Its Qini on the untouched reporting set, the quotable number, is **2.6** (95% CI -23.1 to 29.3). Choosing on the reporting set, as this script used to do, would have quoted **19.3** instead, **+16.7** of winner's curse over three candidates.
 
 **Womens E-Mail**
 
@@ -55,6 +56,7 @@ Selected: **T-learner**. Its Qini on the untouched reporting set, the quotable n
 |---|---|---|
 | T-learner | 49.5 (1.78 per 1,000) | 50.5 (3.38 per 1,000) |
 | S-learner | 85.6 (3.08 per 1,000) | 60.4 (4.04 per 1,000) |
+| DR-learner | 61.3 (2.21 per 1,000) | 56.1 (3.75 per 1,000) |
 
 Selected: **S-learner**. Its Qini on the untouched reporting set, the quotable number, is **60.4** (95% CI 36.8 to 84.9). Choosing on the reporting set, as this script used to do, would have picked the same learner and quoted the same figure: the optimism it was exposed to is zero here. That is now a result rather than an assumption, which is the point. The exposure was real either way.
 
