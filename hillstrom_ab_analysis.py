@@ -143,7 +143,12 @@ PAPER, INK, INK2, INK3, RULE = "#fdfdfb", "#1b1b1a", "#4a4a46", "#6f6f68", "#d8d
 BLUE, RUST = "#1a5e94", "#b4561f"
 # One colour per uplift candidate, fixed here so a learner keeps its colour
 # across every figure it appears in.
-LEARNER_COLOUR = {"T-learner": BLUE, "S-learner": RUST}
+# Blue and rust are the colour-vision-safe pair the page already uses. A third
+# hue would have to clear both of them under protanopia and deuteranopia, which
+# is a hard constraint on this palette, so the third candidate separates by
+# lightness instead. The only other neutral on the Qini chart is the much
+# lighter, dashed random-targeting line.
+LEARNER_COLOUR = {"T-learner": BLUE, "S-learner": RUST, "DR-learner": INK}
 DASH = (0, (4, 3))                       # for threshold / reference lines only
 DOT = (0, (1, 2.5))                      # second reference style, where DASH is taken
 FONT_FILE = ROOT / "fonts" / "SourceSerif4-normal.ttf"
@@ -715,7 +720,10 @@ def _fit_learners(train_df: pd.DataFrame, score_df: pd.DataFrame) -> dict:
     X0 = np.column_stack([Xsc, np.zeros(len(Xsc))])
     score_s = s_model.predict_proba(X1)[:, 1] - s_model.predict_proba(X0)[:, 1]
 
-    return {"T-learner": score_t, "S-learner": score_s}
+    # --- DR-learner: regress an AIPW pseudo-outcome on the covariates ---
+    score_dr = _dr_learner_scores(train_df, score_df)
+
+    return {"T-learner": score_t, "S-learner": score_s, "DR-learner": score_dr}
 
 
 def dr_pseudo_outcome(y, t, mu1, mu0, p):
@@ -1354,6 +1362,10 @@ def write_results_md() -> None:
     def pp(x):  # percentage-point formatter
         return f"{x*100:+.2f}pp"
 
+    def _spell(n):
+        """Small counts read better spelled out in prose."""
+        return {2: "two", 3: "three", 4: "four", 5: "five"}.get(n, str(n))
+
     def money(x, sign=False):
         """Sign outside the currency: -$4.92, not $-4.92.
 
@@ -1486,7 +1498,7 @@ def write_results_md() -> None:
             tail = (f"Choosing on the reporting set, as this script used to do, "
                     f"would have quoted **{up['qini_naive']:.1f}** instead, "
                     f"**{up['optimism']:+.1f}** of winner's curse over "
-                    f"{len(up['qini_select'])} candidates.")
+                    f"{_spell(len(up['qini_select']))} candidates.")
         else:
             tail = ("Choosing on the reporting set, as this script used to do, "
                     "would have picked the same learner and quoted the same "
